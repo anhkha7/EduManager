@@ -21,6 +21,7 @@ export default function App() {
   
   const streamRef = useRef(null);
   const peerConnectionsRef = useRef(new Map());
+  const iceCandidatesBuffersRef = useRef(new Map());
 
   const api = window.electronAPI;
 
@@ -73,6 +74,21 @@ export default function App() {
 
     api.onWebRTCJoin(async ({ studentId }) => {
       if (!streamRef.current) return;
+
+      // Close existing PeerConnection for this student if it exists
+      const oldPc = peerConnectionsRef.current.get(studentId);
+      if (oldPc) {
+        console.log(`[WebRTC] Closing existing PeerConnection for student: ${studentId}`);
+        try {
+          oldPc.close();
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      // Initialize candidate buffer for this student
+      iceCandidatesBuffersRef.current.set(studentId, []);
+
       const pc = new RTCPeerConnection({
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
       });
@@ -93,12 +109,42 @@ export default function App() {
 
     api.onWebRTCAnswer(async ({ studentId, answer }) => {
       const pc = peerConnectionsRef.current.get(studentId);
-      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+      if (!pc) return;
+
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+
+        // Process buffered ICE candidates
+        const buffer = iceCandidatesBuffersRef.current.get(studentId) || [];
+        while (buffer.length > 0) {
+          const candidate = buffer.shift();
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (e) {
+            console.warn(`[WebRTC] Error adding buffered ICE candidate for ${studentId}:`, e);
+          }
+        }
+      } catch (e) {
+        console.error(`[WebRTC] Error setting remote description for ${studentId}:`, e);
+      }
     });
 
     api.onWebRTCIceCandidate(async ({ studentId, candidate }) => {
       const pc = peerConnectionsRef.current.get(studentId);
-      if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      if (!pc) return;
+
+      try {
+        if (pc.remoteDescription && pc.remoteDescription.type) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } else {
+          if (!iceCandidatesBuffersRef.current.has(studentId)) {
+            iceCandidatesBuffersRef.current.set(studentId, []);
+          }
+          iceCandidatesBuffersRef.current.get(studentId).push(candidate);
+        }
+      } catch (e) {
+        console.warn(`[WebRTC] Error adding ICE candidate for ${studentId}:`, e);
+      }
     });
 
     return () => {
@@ -158,6 +204,7 @@ export default function App() {
     }
     peerConnectionsRef.current.forEach(pc => pc.close());
     peerConnectionsRef.current.clear();
+    iceCandidatesBuffersRef.current.clear();
 
     await api.stopBroadcast();
     setIsBroadcasting(false);
