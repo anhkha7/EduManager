@@ -24,7 +24,8 @@ export default function App() {
   const [submissionLogs, setSubmissionLogs] = useState([]);
   
   const streamRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
+  const broadcastIntervalRef = useRef(null);
+  const videoElementRef = useRef(null);
 
   const api = window.electronAPI;
 
@@ -128,20 +129,33 @@ export default function App() {
       streamRef.current = stream;
 
       await api.startBroadcast();
-      api.sendStreamStart(); // Báo cho học sinh chuẩn bị buffer
+      api.sendStreamStart(); // Báo cho học sinh chuẩn bị hiển thị
 
-      const options = { mimeType: 'video/webm; codecs=vp8' };
-      const mediaRecorder = new MediaRecorder(stream, options);
-      
-      mediaRecorder.ondataavailable = async (e) => {
-        if (e.data && e.data.size > 0) {
-          const buffer = await e.data.arrayBuffer();
-          api.sendStreamChunk(buffer);
-        }
+      // Khởi tạo video ẩn và canvas để nén ảnh
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.autoplay = true;
+      video.muted = true;
+      videoElementRef.current = video;
+
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d', { alpha: false });
+
+      // Đợi video chạy mới có kích thước
+      video.onloadedmetadata = () => {
+        video.play().catch(e => console.error("Lỗi play video ẩn:", e));
+        
+        broadcastIntervalRef.current = setInterval(() => {
+          if (video.videoWidth > 0 && video.videoHeight > 0) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // Nén JPEG chất lượng 60% (~50-80KB mỗi khung hình)
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+            api.sendStreamChunk(dataUrl);
+          }
+        }, 50); // 50ms = 20 FPS (Tốc độ khung hình hoàn hảo cho dạy học)
       };
-
-      mediaRecorder.start(200); // Gửi chunk mỗi 200ms
-      mediaRecorderRef.current = mediaRecorder;
 
       setIsBroadcasting(true);
       addToast('📡 Đang chiếu màn hình tới học sinh...', 'info');
@@ -152,10 +166,16 @@ export default function App() {
   }, [api, addToast]);
 
   const stopBroadcast = useCallback(async () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+    if (broadcastIntervalRef.current) {
+      clearInterval(broadcastIntervalRef.current);
+      broadcastIntervalRef.current = null;
     }
-    mediaRecorderRef.current = null;
+
+    if (videoElementRef.current) {
+      videoElementRef.current.pause();
+      videoElementRef.current.srcObject = null;
+      videoElementRef.current = null;
+    }
 
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());

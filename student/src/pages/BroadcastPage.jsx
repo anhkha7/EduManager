@@ -3,73 +3,27 @@ import '../App.css';
 
 export default function BroadcastPage() {
   const [isConnected, setIsConnected] = useState(false);
-  const [debugStatus, setDebugStatus] = useState("Đang đợi kết nối Stream...");
-  const videoRef = useRef(null);
+  const [debugStatus, setDebugStatus] = useState("Đang đợi kết nối Stream Ảnh...");
+  const imgRef = useRef(null);
   
-  const mediaSourceRef = useRef(null);
-  const sourceBufferRef = useRef(null);
-  const queueRef = useRef([]);
-
   useEffect(() => {
     const api = window.electronAPI;
     if (!api) return;
 
-    let mediaSource = new MediaSource();
-    mediaSourceRef.current = mediaSource;
-    if (videoRef.current) {
-      videoRef.current.src = URL.createObjectURL(mediaSource);
-    }
-
-    const onSourceOpen = () => {
-      setDebugStatus("MediaSource mở. Đợi luồng chunks...");
-      try {
-        const sourceBuffer = mediaSource.addSourceBuffer('video/webm; codecs=vp8');
-        sourceBuffer.mode = 'sequence';
-        sourceBufferRef.current = sourceBuffer;
-
-        sourceBuffer.addEventListener('updateend', () => {
-          if (queueRef.current.length > 0 && !sourceBuffer.updating) {
-            const nextChunk = queueRef.current.shift();
-            try {
-              sourceBuffer.appendBuffer(nextChunk);
-            } catch (err) {
-              console.warn("Lỗi appendBuffer (updateend):", err);
-            }
-          }
-        });
-      } catch (err) {
-        setDebugStatus("Lỗi tạo SourceBuffer: " + err.message);
+    const handleStreamStart = () => {
+      setDebugStatus("Đã nhận lệnh bắt đầu stream (MJPEG)");
+      setIsConnected(false);
+      if (imgRef.current) {
+        imgRef.current.src = "";
       }
     };
 
-    mediaSource.addEventListener('sourceopen', onSourceOpen);
-
-    const handleStreamStart = () => {
-      setDebugStatus("Đã nhận lệnh bắt đầu stream");
-      queueRef.current = [];
-      setIsConnected(false);
-    };
-
-    const handleStreamChunk = (chunk) => {
-      setIsConnected(true);
-      if (!sourceBufferRef.current) return;
-      
-      // Node.js Buffer được gửi qua IPC là kiểu Uint8Array trong trình duyệt
-      const buffer = new Uint8Array(chunk);
-      queueRef.current.push(buffer);
-
-      if (!sourceBufferRef.current.updating) {
-        const nextChunk = queueRef.current.shift();
-        try {
-          sourceBufferRef.current.appendBuffer(nextChunk);
-          setDebugStatus(`Đang phát stream... Queue: ${queueRef.current.length}`);
-          
-          if (videoRef.current && videoRef.current.paused) {
-            videoRef.current.play().catch(e => console.warn("Lỗi auto-play:", e));
-          }
-        } catch (err) {
-          console.warn("Lỗi appendBuffer:", err);
-        }
+    const handleStreamChunk = (base64Image) => {
+      if (!isConnected) setIsConnected(true);
+      if (imgRef.current) {
+        // Cập nhật ảnh trực tiếp, không độ trễ
+        imgRef.current.src = base64Image;
+        setDebugStatus(`Đang phát MJPEG... (Độ trễ 0s)`);
       }
     };
 
@@ -87,23 +41,18 @@ export default function BroadcastPage() {
       api.removeAllListeners?.('stream:start');
       api.removeAllListeners?.('stream:chunk');
       window.removeEventListener('keydown', block, true);
-      if (mediaSource.readyState === 'open') {
-        try { mediaSource.endOfStream(); } catch (e) {}
-      }
     };
-  }, []);
+  }, [isConnected]);
 
   return (
     <div className="broadcast-page">
       <div className="broadcast-label">📡 MÀN HÌNH GIÁO VIÊN</div>
 
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
+      <img
+        ref={imgRef}
         className="broadcast-image"
-        style={{ display: isConnected ? 'block' : 'none', width: '100%', height: '100%', objectFit: 'contain' }}
+        style={{ display: isConnected ? 'block' : 'none', width: '100%', height: '100%', objectFit: 'contain', backgroundColor: 'black' }}
+        alt="Teacher Screen"
       />
       
       {!isConnected && (
