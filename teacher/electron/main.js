@@ -1,6 +1,7 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, Tray, Menu, nativeImage, shell, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const http = require('http');
 const { Server } = require('socket.io');
 const os = require('os');
@@ -13,7 +14,7 @@ const SERVER_PORT = 3722; // Port đặc trưng cho EduManager
 const httpServer = http.createServer();
 const io = new Server(httpServer, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
-  maxHttpBufferSize: 10e6, // 10MB (cho broadcast frames)
+  maxHttpBufferSize: 50e6, // 50MB (hỗ trợ gửi file)
   pingTimeout: 15000,
   pingInterval: 5000
 });
@@ -80,6 +81,12 @@ io.on('connection', (socket) => {
       notifyRenderer('student:left', { id: socket.id, name: student.name });
     }
   });
+
+  // ── File Transfer ACK ──────────────────────────────────────
+  socket.on('file:received-ack', ({ fileId, fileName, studentName }) => {
+    console.log(`[Server] Học sinh ${studentName} đã nhận file: ${fileName}`);
+    notifyRenderer('file:ack', { fileId, fileName, studentName });
+  });
 });
 // Khởi động server
 httpServer.listen(SERVER_PORT, '0.0.0.0', () => {
@@ -137,7 +144,6 @@ function createMainWindow() {
   });
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
@@ -232,6 +238,65 @@ ipcMain.handle('get-screen-source-id', async () => {
   });
   return sources[0]?.id ?? null;
 });
+// ── File Transfer ─────────────────────────────────────────────
+// Mở hộp thoại chọn file
+ipcMain.handle('teacher:open-file-dialog', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn file để gửi cho học sinh',
+    properties: ['openFile'],
+    filters: [
+      { name: 'Tất cả file', extensions: ['*'] },
+      { name: 'Tài liệu', extensions: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'txt'] },
+      { name: 'Hình ảnh', extensions: ['jpg', 'jpeg', 'png', 'gif', 'bmp'] },
+      { name: 'Video', extensions: ['mp4', 'avi', 'mkv', 'mov'] }
+    ]
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  const filePath = result.filePaths[0];
+  const fileName = path.basename(filePath);
+  const stat = fs.statSync(filePath);
+  return { filePath, fileName, fileSize: stat.size };
+});
+
+// Gửi file tới học sinh theo cơ chế chunk
+const CHUNK_SIZE = 256 * 1024; // 256 KB mỗi chunk
+ipcMain.handle('teacher:send-file', async (_, { studentId, filePath, fileName }) => {
+  try {
+    const buffer = fs.readFileSync(filePath);
+    const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE);
+    const fileId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const target = studentId === 'all' ? io.to('students') : io.to(studentId);
+
+    // Thông báo bắt đầu
+    target.emit('file:start', { fileId, fileName, totalChunks, fileSize: buffer.length });
+
+    // Gửi từng chunk
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const chunk = buffer.slice(start, start + CHUNK_SIZE);
+      target.emit('file:chunk', {
+        fileId,
+        chunkIndex: i,
+        totalChunks,
+        chunk: chunk.toString('base64')
+      });
+      // Cập nhật tiến trình cho teacher UI
+      const progress = Math.round(((i + 1) / totalChunks) * 100);
+      notifyRenderer('file:progress', { fileId, fileName, progress });
+      // Nhường vòng lặp event để tránh block
+      await new Promise(resolve => setImmediate(resolve));
+    }
+
+    // Thông báo kết thúc
+    target.emit('file:done', { fileId, fileName });
+    notifyRenderer('file:progress', { fileId, fileName, progress: 100, done: true });
+    return { success: true };
+  } catch (err) {
+    console.error('[Teacher] Lỗi gửi file:', err.message);
+    return { success: false, error: err.message };
+  }
+});
+
 // ── Window controls ───────────────────────────────────────────
 ipcMain.handle('window:minimize', () => mainWindow?.minimize());
 ipcMain.handle('window:maximize', () => {

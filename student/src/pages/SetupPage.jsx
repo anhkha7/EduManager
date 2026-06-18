@@ -9,6 +9,8 @@ export default function SetupPage() {
   const [errorMsg, setErrorMsg] = useState('');
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
+  const [receivedFiles, setReceivedFiles] = useState([]);
+  const [incomingFile, setIncomingFile] = useState(null); // file đang được nhận
 
   const api = window.electronAPI;
 
@@ -37,9 +39,23 @@ export default function SetupPage() {
       setMessages(prev => [...prev.slice(-9), msg]); // giữ 10 tin
     });
 
+    // Lắng nghe file từ giáo viên
+    api.onFileReceiving(({ fileName, fileSize }) => {
+      setIncomingFile({ fileName, fileSize });
+    });
+    api.onFileReceived(({ fileName, savePath, fileSize }) => {
+      setIncomingFile(null);
+      setReceivedFiles(prev => [
+        { fileName, savePath, fileSize, time: Date.now() },
+        ...prev.slice(0, 9) // giữ tối đa 10 file
+      ]);
+    });
+
     return () => {
       api.removeAllListeners('connection-status');
       api.removeAllListeners('chat-received');
+      api.removeAllListeners('file-receiving');
+      api.removeAllListeners('file-received');
     };
   }, []);
 
@@ -185,6 +201,54 @@ export default function SetupPage() {
                 ➤
               </button>
             </div>
+          </>
+        )}
+        {/* File nhận được */}
+        {status === 'connected' && (
+          <>
+            {incomingFile && (
+              <div style={{
+                margin: '8px 0',
+                padding: '10px 12px',
+                background: 'rgba(59,130,246,0.08)',
+                border: '1px solid rgba(59,130,246,0.25)',
+                borderRadius: 8,
+                fontSize: 13
+              }}>
+                <div style={{ color: '#60a5fa', fontWeight: 600, marginBottom: 2 }}>📥 Đang nhận file...</div>
+                <div style={{ color: 'var(--text-secondary)' }}>{incomingFile.fileName}</div>
+                <div style={{ marginTop: 6, height: 4, background: 'var(--surface)', borderRadius: 4, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: '100%', background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)', borderRadius: 4, animation: 'pulse 1s infinite' }} />
+                </div>
+              </div>
+            )}
+
+            {receivedFiles.length > 0 && (
+              <div className="messages-section">
+                <div className="messages-title">📁 File đã nhận</div>
+                {receivedFiles.map((f, i) => (
+                  <div key={i} className="message-item" style={{ cursor: 'default' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 18 }}>📄</span>
+                      <div style={{ flex: 1, overflow: 'hidden' }}>
+                        <div className="message-from" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {f.fileName}
+                        </div>
+                        <div className="message-text" style={{ fontSize: 11 }}>
+                          {f.fileSize < 1024 * 1024
+                            ? `${(f.fileSize / 1024).toFixed(1)} KB`
+                            : `${(f.fileSize / 1024 / 1024).toFixed(2)} MB`
+                          } · {new Date(f.time).toLocaleTimeString('vi-VN')}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#4ade80', marginTop: 4 }}>
+                      ✅ Đã lưu vào Downloads/EduManager/
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>

@@ -25,6 +25,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Chat ──────────────────────────────────────────────────
   sendChat: (message) => ipcRenderer.invoke('send-chat', { message }),
 
+  // ── File Transfer ─────────────────────────────────────────
+  onFileReceiving: (cb) => ipcRenderer.on('file-receiving', (_, d) => cb(d)),
+  onFileReceived: (cb) => ipcRenderer.on('file-received', (_, d) => cb(d)),
+
   // ── Window controls ───────────────────────────────────────
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowClose: () => ipcRenderer.invoke('window:close'),

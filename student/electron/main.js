@@ -1,7 +1,8 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 const os = require('os');
 const { io } = require('socket.io-client');
 
@@ -55,7 +56,6 @@ function createSetupWindow() {
 
   if (isDev) {
     setupWindow.loadURL('http://localhost:5174');
-    setupWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     setupWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
@@ -98,7 +98,6 @@ function createLockWindow(message) {
 
   if (isDev) {
     lockWindow.loadURL(`http://localhost:5174/#lock?msg=${encodeURIComponent(message)}`);
-    lockWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     lockWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
       hash: `lock?msg=${encodeURIComponent(message)}`
@@ -150,7 +149,6 @@ function createBroadcastWindow() {
 
   if (isDev) {
     broadcastWindow.loadURL('http://localhost:5174/#broadcast');
-    broadcastWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     broadcastWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
       hash: 'broadcast'
@@ -267,6 +265,53 @@ function connectToServer(serverIp, serverPort) {
     // Hiện trên lockscreen nếu đang khóa
     if (lockWindow && !lockWindow.isDestroyed()) {
       lockWindow.webContents.send('chat-received', { from, message, time });
+    }
+  });
+
+  // ── File Transfer (Nhận file từ giáo viên) ─────────────────────
+  const fileBuffers = new Map(); // fileId -> { fileName, chunks: [], totalChunks }
+
+  socket.on('file:start', ({ fileId, fileName, totalChunks, fileSize }) => {
+    console.log(`[Student] Bắt đầu nhận file: ${fileName} (${totalChunks} chunks, ${fileSize} bytes)`);
+    fileBuffers.set(fileId, { fileName, totalChunks, chunks: [] });
+    if (setupWindow && !setupWindow.isDestroyed()) {
+      setupWindow.webContents.send('file-receiving', { fileName, fileSize });
+    }
+  });
+
+  socket.on('file:chunk', ({ fileId, chunkIndex, chunk }) => {
+    const entry = fileBuffers.get(fileId);
+    if (!entry) return;
+    entry.chunks[chunkIndex] = Buffer.from(chunk, 'base64');
+  });
+
+  socket.on('file:done', async ({ fileId, fileName }) => {
+    const entry = fileBuffers.get(fileId);
+    if (!entry) return;
+    fileBuffers.delete(fileId);
+
+    try {
+      // Ghép tất cả chunk lại thành file hoàn chỉnh
+      const completeBuffer = Buffer.concat(entry.chunks.filter(Boolean));
+
+      // Tạo thư mục lưu nếu chưa tồn tại
+      const saveDir = path.join(os.homedir(), 'Downloads', 'EduManager');
+      await fs.promises.mkdir(saveDir, { recursive: true });
+
+      const savePath = path.join(saveDir, fileName);
+      await fs.promises.writeFile(savePath, completeBuffer);
+      console.log(`[Student] Đã lưu file: ${savePath}`);
+
+      // Thông báo cho UI học sinh
+      const studentName = store.get('studentName', os.hostname());
+      if (setupWindow && !setupWindow.isDestroyed()) {
+        setupWindow.webContents.send('file-received', { fileName, savePath, fileSize: completeBuffer.length });
+      }
+
+      // Gửi ack trở lại cho giáo viên
+      socket.emit('file:received-ack', { fileId, fileName, studentName });
+    } catch (err) {
+      console.error('[Student] Lỗi lưu file:', err.message);
     }
   });
 

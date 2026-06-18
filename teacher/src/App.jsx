@@ -5,6 +5,7 @@ import Titlebar from './components/Titlebar';
 import Sidebar from './components/Sidebar';
 import StudentGrid from './components/StudentGrid';
 import ChatPanel from './components/ChatPanel';
+import FileTransferPanel from './components/FileTransferPanel';
 import StudentDetail from './components/StudentDetail';
 import Toast from './components/Toast';
 
@@ -13,11 +14,13 @@ export default function App() {
   const [serverInfo, setServerInfo] = useState({ ip: '...', port: 3722 });
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [showChat, setShowChat] = useState(false);
+  const [showFileTransfer, setShowFileTransfer] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [gridCols, setGridCols] = useState(4);
   const [toasts, setToasts] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
+  const [fileTransferLogs, setFileTransferLogs] = useState([]);
   
   const streamRef = useRef(null);
   const peerConnectionsRef = useRef(new Map());
@@ -70,6 +73,13 @@ export default function App() {
     api.onChatIncoming((msg) => {
       setChatMessages(prev => [...prev, { ...msg, direction: 'incoming' }]);
       if (!showChat) addToast(`💬 ${msg.from}: ${msg.message}`, 'info');
+    });
+
+    api.onFileAck(({ fileId, fileName, studentName }) => {
+      setFileTransferLogs(prev => [...prev, {
+        type: 'ack', fileName, studentName, fileId, time: Date.now(), icon: '📥'
+      }]);
+      addToast(`✅ ${studentName} đã nhận file: ${fileName}`, 'success');
     });
 
     api.onWebRTCJoin(async ({ studentId }) => {
@@ -158,7 +168,7 @@ export default function App() {
     });
 
     return () => {
-      ['student:joined','student:left','student:thumbnail','students:state-changed','chat:incoming', 'webrtc:join-broadcast', 'webrtc:answer', 'webrtc:ice-candidate']
+      ['student:joined','student:left','student:thumbnail','students:state-changed','chat:incoming', 'webrtc:join-broadcast', 'webrtc:answer', 'webrtc:ice-candidate', 'file:progress', 'file:ack']
         .forEach(ch => api.removeAllListeners(ch));
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -254,6 +264,17 @@ export default function App() {
     }]);
   }, [api, students]);
 
+  // ── File Transfer ───────────────────────────────────────────
+  const handleFileSent = useCallback((fileName, targetId) => {
+    const target = targetId === 'all'
+      ? 'Tất cả học sinh'
+      : (students.find(s => s.id === targetId)?.name || '?');
+    setFileTransferLogs(prev => [...prev, {
+      type: 'sent', fileName, target, time: Date.now(), icon: '📤'
+    }]);
+    addToast(`📤 Đang gửi file ${fileName}...`, 'info');
+  }, [students, addToast]);
+
   // ── Filtered students ──────────────────────────────────────────
   const filteredStudents = students.filter(s => {
     const q = searchQuery.toLowerCase();
@@ -279,6 +300,7 @@ export default function App() {
           onUnlockAll={handleUnlockAll}
           onBroadcastToggle={handleBroadcastToggle}
           onShowChat={() => setShowChat(true)}
+          onShowFileTransfer={() => setShowFileTransfer(true)}
           serverInfo={serverInfo}
         />
 
@@ -328,6 +350,15 @@ export default function App() {
           messages={chatMessages}
           onSend={handleSendChat}
           onClose={() => setShowChat(false)}
+        />
+
+        {/* ── File Transfer Panel ────────────────────────────── */}
+        <FileTransferPanel
+          show={showFileTransfer}
+          students={students}
+          logs={fileTransferLogs}
+          onSent={handleFileSent}
+          onClose={() => setShowFileTransfer(false)}
         />
       </div>
 

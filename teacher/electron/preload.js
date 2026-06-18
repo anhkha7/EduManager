@@ -35,6 +35,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   getScreenSourceId: () => ipcRenderer.invoke('get-screen-source-id'),
 
+  // ── File Transfer ─────────────────────────────────────────
+  openFileDialog: () => ipcRenderer.invoke('teacher:open-file-dialog'),
+  sendFile: (studentId, filePath, fileName) => ipcRenderer.invoke('teacher:send-file', { studentId, filePath, fileName }),
+  onFileProgress: (cb) => ipcRenderer.on('file:progress', (_, d) => cb(d)),
+  onFileAck: (cb) => ipcRenderer.on('file:ack', (_, d) => cb(d)),
+
   // ── Window controls ───────────────────────────────────────────
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowMaximize: () => ipcRenderer.invoke('window:maximize'),
