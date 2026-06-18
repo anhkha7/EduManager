@@ -57,6 +57,17 @@ io.on('connection', (socket) => {
       time: Date.now()
     });
   });
+  // ── WebRTC Signaling ──────────────────────────────────────────
+  socket.on('webrtc:join-broadcast', () => {
+    notifyRenderer('webrtc:join-broadcast', { studentId: socket.id });
+  });
+  socket.on('webrtc:answer', (data) => {
+    notifyRenderer('webrtc:answer', { studentId: socket.id, answer: data.answer });
+  });
+  socket.on('webrtc:ice-candidate', (data) => {
+    notifyRenderer('webrtc:ice-candidate', { studentId: socket.id, candidate: data.candidate });
+  });
+
   // ── Xử lý ngắt kết nối ────────────────────────────────────────
   socket.on('disconnect', (reason) => {
     if (students.has(socket.id)) {
@@ -185,9 +196,12 @@ ipcMain.handle('teacher:broadcast-stop', () => {
   students.forEach(s => { s.broadcasting = false; s.locked = false; });
   notifyRenderer('students:state-changed', getStudentList());
 });
-// ── Gửi frame broadcast (từ renderer, không dùng invoke để tránh lag) ──
-ipcMain.on('teacher:broadcast-frame', (_, { image }) => {
-  io.to('students').emit('broadcast:frame', { image });
+// ── WebRTC Signaling (Teacher -> Student) ─────────────────────
+ipcMain.on('teacher:webrtc-offer', (_, { studentId, offer }) => {
+  io.to(studentId).emit('webrtc:offer', { offer });
+});
+ipcMain.on('teacher:webrtc-ice-candidate', (_, { studentId, candidate }) => {
+  io.to(studentId).emit('webrtc:ice-candidate', { candidate });
 });
 // ── Gửi chat/thông báo ────────────────────────────────────────
 ipcMain.handle('teacher:chat', (_, { studentId, message }) => {

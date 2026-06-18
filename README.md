@@ -23,10 +23,10 @@ Dự án bao gồm 2 ứng dụng:
 ### 1. Yêu cầu hệ thống
 - Đã cài đặt [Node.js](https://nodejs.org/) (khuyến nghị bản LTS 20.x trở lên).
 - Hệ điều hành: Hiện tại hỗ trợ tốt nhất trên Windows.
-
+   
 ### 2. Tải mã nguồn
 ```bash
-git clone https://github.com/your-username/edumanager.git
+git clone https://github.com/anhkha7/EduManager.git
 cd edumanager
 ```
 

@@ -1,25 +1,42 @@
 {
-  "name": "edumanager-student",
+  "name": "edumanager-teacher",
   "version": "1.0.0",
-  "description": "EduManager - Phần mềm Quản lý Lớp học (Học sinh)",
+  "description": "EduManager - Phần mềm Quản lý Lớp học (Giáo viên)",
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently -k -n VITE,ELECTRON --prefix-colors magenta,green \"vite\" \"node scripts/electron-dev.js\"",
+    "dev": "concurrently -k -n VITE,ELECTRON --prefix-colors cyan,yellow \"vite\" \"node scripts/electron-dev.js\"",
     "vite": "vite",
-    "build": "vite build",
+    "build:exe": "vite build && electron-builder --win",
     "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.edumanager.app",
+    "productName": "EduManager",
+    "directories": {
+      "output": "release/"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "dependencies": {
     "electron-store": "^8.2.0",
-    "socket.io-client": "^4.7.5"
+    "express": "^4.18.3",
+    "socket.io": "^4.7.5",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
     "concurrently": "^8.2.2",
-    "electron": "^29.1.0",
+    "cross-env": "^7.0.3",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "vite": "^5.2.0",
-    "cross-env": "^7.0.3"
+    "vite": "^8.0.16"
   }
 }

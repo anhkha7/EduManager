@@ -108,14 +108,6 @@ function createLockWindow(message) {
     if (!lockWindow._allowClose) e.preventDefault();
   });
 
-  // Emergency unlock for testing on same machine
-  lockWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.control && input.shift && input.key.toLowerCase() === 'u') {
-      console.log('[Student] Emergency unlock triggered');
-      closeLockWindow();
-    }
-  });
-
   lockWindow.on('closed', () => { lockWindow = null; });
 }
 
@@ -246,9 +238,15 @@ function connectToServer(serverIp, serverPort) {
     createBroadcastWindow();
   });
 
-  socket.on('broadcast:frame', ({ image }) => {
+  socket.on('webrtc:offer', ({ offer }) => {
     if (broadcastWindow && !broadcastWindow.isDestroyed()) {
-      broadcastWindow.webContents.send('broadcast-frame', image);
+      broadcastWindow.webContents.send('webrtc:offer', { offer });
+    }
+  });
+
+  socket.on('webrtc:ice-candidate', ({ candidate }) => {
+    if (broadcastWindow && !broadcastWindow.isDestroyed()) {
+      broadcastWindow.webContents.send('webrtc:ice-candidate', { candidate });
     }
   });
 
@@ -341,6 +339,17 @@ ipcMain.handle('send-chat', (_, { message }) => {
   if (socket && isConnected) {
     socket.emit('student:chat', { message });
   }
+});
+
+// ── WebRTC Signaling (Student -> Teacher) ──────────────────────
+ipcMain.handle('student:webrtc-join', () => {
+  if (socket && isConnected) socket.emit('webrtc:join-broadcast');
+});
+ipcMain.handle('student:webrtc-answer', (_, { answer }) => {
+  if (socket && isConnected) socket.emit('webrtc:answer', { answer });
+});
+ipcMain.handle('student:webrtc-ice-candidate', (_, { candidate }) => {
+  if (socket && isConnected) socket.emit('webrtc:ice-candidate', { candidate });
 });
 
 // Window controls

@@ -55,9 +55,6 @@ export default function LockPage({ initialMessage }) {
   // Chặn tất cả phím tắt
   useEffect(() => {
     const blockKeys = (e) => {
-      // Cho phép Ctrl+Shift+U đi qua để emergency unlock
-      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'u') return;
-
       // Chặn Alt+F4, Windows key, v.v.
       if (e.altKey || e.key === 'Meta' || e.key === 'F4') {
         e.preventDefault();

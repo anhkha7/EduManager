@@ -18,8 +18,10 @@ export default function App() {
   const [gridCols, setGridCols] = useState(4);
   const [toasts, setToasts] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
+  
+  const streamRef = useRef(null);
+  const peerConnectionsRef = useRef(new Map());
 
-  const broadcastCleanupRef = useRef(null);
   const api = window.electronAPI;
 
   // ── Toast notifications ────────────────────────────────────────
@@ -69,8 +71,38 @@ export default function App() {
       if (!showChat) addToast(`💬 ${msg.from}: ${msg.message}`, 'info');
     });
 
+    api.onWebRTCJoin(async ({ studentId }) => {
+      if (!streamRef.current) return;
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+      peerConnectionsRef.current.set(studentId, pc);
+
+      streamRef.current.getTracks().forEach(track => pc.addTrack(track, streamRef.current));
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          api.sendWebRTCIceCandidate(studentId, event.candidate);
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      api.sendWebRTCOffer(studentId, offer);
+    });
+
+    api.onWebRTCAnswer(async ({ studentId, answer }) => {
+      const pc = peerConnectionsRef.current.get(studentId);
+      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(answer));
+    });
+
+    api.onWebRTCIceCandidate(async ({ studentId, candidate }) => {
+      const pc = peerConnectionsRef.current.get(studentId);
+      if (pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    });
+
     return () => {
-      ['student:joined','student:left','student:thumbnail','students:state-changed','chat:incoming']
+      ['student:joined','student:left','student:thumbnail','students:state-changed','chat:incoming', 'webrtc:join-broadcast', 'webrtc:answer', 'webrtc:ice-candidate']
         .forEach(ch => api.removeAllListeners(ch));
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -103,36 +135,13 @@ export default function App() {
             chromeMediaSourceId: sourceId,
             maxWidth: 1280,
             maxHeight: 720,
-            maxFrameRate: 8
+            maxFrameRate: 30
           }
         }
       });
+      streamRef.current = stream;
 
       await api.startBroadcast();
-
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      await video.play();
-
-      const canvas = document.createElement('canvas');
-      canvas.width = 1280;
-      canvas.height = 720;
-      const ctx = canvas.getContext('2d');
-
-      let active = true;
-      const intervalId = setInterval(() => {
-        if (!active) return;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const frame = canvas.toDataURL('image/jpeg', 0.5);
-        api.sendBroadcastFrame(frame);
-      }, 125); // ~8fps
-
-      broadcastCleanupRef.current = () => {
-        active = false;
-        clearInterval(intervalId);
-        stream.getTracks().forEach(t => t.stop());
-        video.srcObject = null;
-      };
 
       setIsBroadcasting(true);
       addToast('📡 Đang chiếu màn hình tới học sinh...', 'info');
@@ -143,10 +152,13 @@ export default function App() {
   }, [api, addToast]);
 
   const stopBroadcast = useCallback(async () => {
-    if (broadcastCleanupRef.current) {
-      broadcastCleanupRef.current();
-      broadcastCleanupRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
     }
+    peerConnectionsRef.current.forEach(pc => pc.close());
+    peerConnectionsRef.current.clear();
+
     await api.stopBroadcast();
     setIsBroadcasting(false);
     addToast('⏹️ Đã dừng chiếu màn hình', 'info');
