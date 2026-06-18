@@ -1,0 +1,25 @@
+{
+  "name": "edumanager-student",
+  "version": "1.0.0",
+  "description": "EduManager - Phần mềm Quản lý Lớp học (Học sinh)",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k -n VITE,ELECTRON --prefix-colors magenta,green \"vite\" \"node scripts/electron-dev.js\"",
+    "vite": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0",
+    "socket.io-client": "^4.7.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
+    "electron": "^29.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.2.0",
+    "cross-env": "^7.0.3"
+  }
+}
