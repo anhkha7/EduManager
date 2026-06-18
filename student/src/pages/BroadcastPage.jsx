@@ -4,6 +4,9 @@ import '../App.css';
 export default function BroadcastPage() {
   const [isConnected, setIsConnected] = useState(false);
   const [debugStatus, setDebugStatus] = useState("Bắt đầu...");
+  const [signalingState, setSignalingState] = useState("stable");
+  const [iceState, setIceState] = useState("new");
+  const [connState, setConnState] = useState("new");
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -16,6 +19,17 @@ export default function BroadcastPage() {
 
     const iceCandidatesBuffer = [];
     let isProcessingOffer = false;
+
+    // Track states
+    pc.onsignalingstatechange = () => {
+      setSignalingState(pc.signalingState);
+    };
+    pc.oniceconnectionstatechange = () => {
+      setIceState(pc.iceConnectionState);
+    };
+    pc.onconnectionstatechange = () => {
+      setConnState(pc.connectionState);
+    };
 
     pc.ontrack = (event) => {
       setDebugStatus("Đã nhận Track Video!");
@@ -36,6 +50,7 @@ export default function BroadcastPage() {
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
+        console.log('[WebRTC] Student generated ICE candidate:', event.candidate.candidate);
         api.sendWebRTCIceCandidate(event.candidate);
       }
     };
@@ -51,6 +66,7 @@ export default function BroadcastPage() {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
         
         // Process buffered ICE candidates
+        console.log(`[WebRTC] Processing ${iceCandidatesBuffer.length} buffered ICE candidates`);
         while (iceCandidatesBuffer.length > 0) {
           const candidate = iceCandidatesBuffer.shift();
           try {
@@ -73,6 +89,7 @@ export default function BroadcastPage() {
 
     api.onWebRTCIceCandidate(async ({ candidate }) => {
       try {
+        console.log('[WebRTC] Student received ICE candidate from teacher:', candidate.candidate);
         if (pc.remoteDescription && pc.remoteDescription.type) {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } else {
@@ -123,8 +140,11 @@ export default function BroadcastPage() {
       )}
 
       {/* Overlay debug text always visible */}
-      <div style={{ position: 'absolute', top: 50, left: 20, color: '#00ff00', fontSize: 16, zIndex: 9999, background: 'rgba(0,0,0,0.5)', padding: '5px 10px', borderRadius: 4 }}>
-        [Debug] Trạng thái: {debugStatus}
+      <div style={{ position: 'absolute', top: 50, left: 20, color: '#00ff00', fontSize: 14, zIndex: 9999, background: 'rgba(0,0,0,0.7)', padding: '8px 12px', borderRadius: 4, fontFamily: 'monospace', lineHeight: '1.4' }}>
+        <div>[Debug] Trạng thái: {debugStatus}</div>
+        <div>[Debug] Signaling: {signalingState}</div>
+        <div>[Debug] ICE State: {iceState}</div>
+        <div>[Debug] Conn State: {connState}</div>
       </div>
     </div>
   );

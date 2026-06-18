@@ -59,12 +59,15 @@ io.on('connection', (socket) => {
   });
   // ── WebRTC Signaling ──────────────────────────────────────────
   socket.on('webrtc:join-broadcast', () => {
+    console.log(`[Server Socket] Nhận join-broadcast từ student: ${socket.id}`);
     notifyRenderer('webrtc:join-broadcast', { studentId: socket.id });
   });
   socket.on('webrtc:answer', (data) => {
+    console.log(`[Server Socket] Nhận answer từ student: ${socket.id}`);
     notifyRenderer('webrtc:answer', { studentId: socket.id, answer: data.answer });
   });
   socket.on('webrtc:ice-candidate', (data) => {
+    console.log(`[Server Socket] Nhận ice-candidate từ student: ${socket.id}`);
     notifyRenderer('webrtc:ice-candidate', { studentId: socket.id, candidate: data.candidate });
   });
 
@@ -134,7 +137,7 @@ function createMainWindow() {
   });
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
-    // mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
@@ -198,9 +201,11 @@ ipcMain.handle('teacher:broadcast-stop', () => {
 });
 // ── WebRTC Signaling (Teacher -> Student) ─────────────────────
 ipcMain.on('teacher:webrtc-offer', (_, { studentId, offer }) => {
+  console.log(`[Teacher IPC] gửi offer tới student: ${studentId}`);
   io.to(studentId).emit('webrtc:offer', { offer });
 });
 ipcMain.on('teacher:webrtc-ice-candidate', (_, { studentId, candidate }) => {
+  console.log(`[Teacher IPC] gửi ice-candidate tới student: ${studentId}`);
   io.to(studentId).emit('webrtc:ice-candidate', { candidate });
 });
 // ── Gửi chat/thông báo ────────────────────────────────────────

@@ -55,6 +55,7 @@ function createSetupWindow() {
 
   if (isDev) {
     setupWindow.loadURL('http://localhost:5174');
+    setupWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     setupWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
@@ -97,6 +98,7 @@ function createLockWindow(message) {
 
   if (isDev) {
     lockWindow.loadURL(`http://localhost:5174/#lock?msg=${encodeURIComponent(message)}`);
+    lockWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     lockWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
       hash: `lock?msg=${encodeURIComponent(message)}`
@@ -148,6 +150,7 @@ function createBroadcastWindow() {
 
   if (isDev) {
     broadcastWindow.loadURL('http://localhost:5174/#broadcast');
+    broadcastWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     broadcastWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
       hash: 'broadcast'
@@ -239,12 +242,14 @@ function connectToServer(serverIp, serverPort) {
   });
 
   socket.on('webrtc:offer', ({ offer }) => {
+    console.log('[Student Socket] Nhận offer từ teacher');
     if (broadcastWindow && !broadcastWindow.isDestroyed()) {
       broadcastWindow.webContents.send('webrtc:offer', { offer });
     }
   });
 
   socket.on('webrtc:ice-candidate', ({ candidate }) => {
+    console.log('[Student Socket] Nhận ice-candidate từ teacher');
     if (broadcastWindow && !broadcastWindow.isDestroyed()) {
       broadcastWindow.webContents.send('webrtc:ice-candidate', { candidate });
     }
@@ -343,12 +348,15 @@ ipcMain.handle('send-chat', (_, { message }) => {
 
 // ── WebRTC Signaling (Student -> Teacher) ──────────────────────
 ipcMain.handle('student:webrtc-join', () => {
+  console.log('[Student IPC] student:webrtc-join');
   if (socket && isConnected) socket.emit('webrtc:join-broadcast');
 });
 ipcMain.handle('student:webrtc-answer', (_, { answer }) => {
+  console.log('[Student IPC] student:webrtc-answer');
   if (socket && isConnected) socket.emit('webrtc:answer', { answer });
 });
 ipcMain.handle('student:webrtc-ice-candidate', (_, { candidate }) => {
+  console.log('[Student IPC] student:webrtc-ice-candidate');
   if (socket && isConnected) socket.emit('webrtc:ice-candidate', { candidate });
 });
 
