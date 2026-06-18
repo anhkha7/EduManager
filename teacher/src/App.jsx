@@ -24,8 +24,7 @@ export default function App() {
   const [submissionLogs, setSubmissionLogs] = useState([]);
   
   const streamRef = useRef(null);
-  const peerConnectionsRef = useRef(new Map());
-  const iceCandidatesBuffersRef = useRef(new Map());
+  const mediaRecorderRef = useRef(null);
 
   const api = window.electronAPI;
 
@@ -88,93 +87,8 @@ export default function App() {
       addToast(`📥 ${data.studentName} vừa nộp bài: ${data.fileName}`, 'success');
     });
 
-    api.onWebRTCJoin(async ({ studentId }) => {
-      if (!streamRef.current) return;
-
-      // Close existing PeerConnection for this student if it exists
-      const oldPc = peerConnectionsRef.current.get(studentId);
-      if (oldPc) {
-        console.log(`[WebRTC] Closing existing PeerConnection for student: ${studentId}`);
-        try {
-          oldPc.close();
-        } catch (e) {
-          console.error(e);
-        }
-      }
-
-      // Initialize candidate buffer for this student
-      iceCandidatesBuffersRef.current.set(studentId, []);
-
-      const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-      });
-      peerConnectionsRef.current.set(studentId, pc);
-
-      streamRef.current.getTracks().forEach(track => pc.addTrack(track, streamRef.current));
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate && event.candidate.candidate) {
-          api.sendWebRTCIceCandidate(studentId, {
-            candidate: event.candidate.candidate,
-            sdpMid: event.candidate.sdpMid,
-            sdpMLineIndex: event.candidate.sdpMLineIndex
-          });
-        }
-      };
-
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      api.sendWebRTCOffer(studentId, offer);
-    });
-
-    api.onWebRTCAnswer(async ({ studentId, answer }) => {
-      const pc = peerConnectionsRef.current.get(studentId);
-      if (!pc) return;
-
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription(answer));
-
-        // Process buffered ICE candidates
-        const buffer = iceCandidatesBuffersRef.current.get(studentId) || [];
-        while (buffer.length > 0) {
-          const candidate = buffer.shift();
-          try {
-            if (candidate && candidate.candidate) {
-              await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            }
-          } catch (e) {
-            console.warn(`[WebRTC] Error adding buffered ICE candidate for ${studentId}:`, e);
-          }
-        }
-      } catch (e) {
-        console.error(`[WebRTC] Error setting remote description for ${studentId}:`, e);
-      }
-    });
-
-    api.onWebRTCIceCandidate(async ({ studentId, candidate }) => {
-      const pc = peerConnectionsRef.current.get(studentId);
-      if (!pc) return;
-
-      try {
-        if (pc.remoteDescription && pc.remoteDescription.type) {
-          if (candidate && candidate.candidate) {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          }
-        } else {
-          if (!iceCandidatesBuffersRef.current.has(studentId)) {
-            iceCandidatesBuffersRef.current.set(studentId, []);
-          }
-          if (candidate && candidate.candidate) {
-            iceCandidatesBuffersRef.current.get(studentId).push(candidate);
-          }
-        }
-      } catch (e) {
-        console.warn(`[WebRTC] Error adding ICE candidate for ${studentId}:`, e);
-      }
-    });
-
     return () => {
-      ['student:joined','student:left','student:thumbnail','students:state-changed','chat:incoming', 'webrtc:join-broadcast', 'webrtc:answer', 'webrtc:ice-candidate', 'file:progress', 'file:ack', 'file:submitted']
+      ['student:joined','student:left','student:thumbnail','students:state-changed','chat:incoming', 'file:progress', 'file:ack', 'file:submitted']
         .forEach(ch => api.removeAllListeners(ch));
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -207,13 +121,27 @@ export default function App() {
             chromeMediaSourceId: sourceId,
             maxWidth: 1280,
             maxHeight: 720,
-            maxFrameRate: 30
+            maxFrameRate: 24 // Giới hạn 24 FPS cho mượt và nhẹ
           }
         }
       });
       streamRef.current = stream;
 
       await api.startBroadcast();
+      api.sendStreamStart(); // Báo cho học sinh chuẩn bị buffer
+
+      const options = { mimeType: 'video/webm; codecs=vp8' };
+      const mediaRecorder = new MediaRecorder(stream, options);
+      
+      mediaRecorder.ondataavailable = async (e) => {
+        if (e.data && e.data.size > 0) {
+          const buffer = await e.data.arrayBuffer();
+          api.sendStreamChunk(buffer);
+        }
+      };
+
+      mediaRecorder.start(200); // Gửi chunk mỗi 200ms
+      mediaRecorderRef.current = mediaRecorder;
 
       setIsBroadcasting(true);
       addToast('📡 Đang chiếu màn hình tới học sinh...', 'info');
@@ -224,13 +152,15 @@ export default function App() {
   }, [api, addToast]);
 
   const stopBroadcast = useCallback(async () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    mediaRecorderRef.current = null;
+
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
     }
-    peerConnectionsRef.current.forEach(pc => pc.close());
-    peerConnectionsRef.current.clear();
-    iceCandidatesBuffersRef.current.clear();
 
     await api.stopBroadcast();
     setIsBroadcasting(false);

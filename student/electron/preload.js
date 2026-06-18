@@ -12,12 +12,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onConnectionStatus: (cb) => ipcRenderer.on('connection-status', (_, d) => cb(d)),
   onChatReceived: (cb) => ipcRenderer.on('chat-received', (_, d) => cb(d)),
 
-  // ── Broadcast window events ───────────────────────────────
-  joinBroadcast: () => ipcRenderer.invoke('student:webrtc-join'),
-  sendWebRTCAnswer: (answer) => ipcRenderer.invoke('student:webrtc-answer', { answer }),
-  sendWebRTCIceCandidate: (candidate) => ipcRenderer.invoke('student:webrtc-ice-candidate', { candidate }),
-  onWebRTCOffer: (cb) => ipcRenderer.on('webrtc:offer', (_, d) => cb(d)),
-  onWebRTCIceCandidate: (cb) => ipcRenderer.on('webrtc:ice-candidate', (_, d) => cb(d)),
+  // ── Broadcast window events (MSE) ─────────────────────────
+  onStreamStart: (cb) => ipcRenderer.on('stream:start', () => cb()),
+  onStreamChunk: (cb) => ipcRenderer.on('stream:chunk', (_, chunk) => cb(chunk)),
 
   // ── Lock window events ────────────────────────────────────
   onUpdateMessage: (cb) => ipcRenderer.on('update-message', (_, msg) => cb(msg)),

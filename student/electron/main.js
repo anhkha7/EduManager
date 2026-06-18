@@ -321,17 +321,16 @@ function connectToServer(serverIp, serverPort) {
     createBroadcastWindow();
   });
 
-  socket.on('webrtc:offer', ({ offer }) => {
-    console.log('[Student Socket] Nhận offer từ teacher');
+  socket.on('broadcast:stream-start', () => {
+    console.log('[Student Socket] Nhận stream-start từ teacher');
     if (broadcastWindow && !broadcastWindow.isDestroyed()) {
-      broadcastWindow.webContents.send('webrtc:offer', { offer });
+      broadcastWindow.webContents.send('stream:start');
     }
   });
 
-  socket.on('webrtc:ice-candidate', ({ candidate }) => {
-    console.log('[Student Socket] Nhận ice-candidate từ teacher');
+  socket.on('broadcast:stream-chunk', (chunk) => {
     if (broadcastWindow && !broadcastWindow.isDestroyed()) {
-      broadcastWindow.webContents.send('webrtc:ice-candidate', { candidate });
+      broadcastWindow.webContents.send('stream:chunk', chunk);
     }
   });
 
@@ -484,19 +483,7 @@ ipcMain.handle('send-chat', (_, { message }) => {
   }
 });
 
-// ── WebRTC Signaling (Student -> Teacher) ──────────────────────
-ipcMain.handle('student:webrtc-join', () => {
-  console.log('[Student IPC] student:webrtc-join');
-  if (socket && isConnected) socket.emit('webrtc:join-broadcast');
-});
-ipcMain.handle('student:webrtc-answer', (_, { answer }) => {
-  console.log('[Student IPC] student:webrtc-answer');
-  if (socket && isConnected) socket.emit('webrtc:answer', { answer });
-});
-ipcMain.handle('student:webrtc-ice-candidate', (_, { candidate }) => {
-  console.log('[Student IPC] student:webrtc-ice-candidate');
-  if (socket && isConnected) socket.emit('webrtc:ice-candidate', { candidate });
-});
+
 
 // Gửi bài nộp từ học sinh tới giáo viên
 ipcMain.handle('student:submit-file', async () => {
