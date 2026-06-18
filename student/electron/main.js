@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { io } = require('socket.io-client');
+const { execSync, spawn } = require('child_process');
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -32,10 +33,43 @@ let setupWindow = null;   // Cửa sổ cài đặt / tray menu
 let lockWindow = null;    // Overlay khóa màn hình
 let broadcastWindow = null; // Overlay broadcast
 let tray = null;
+let blockerProcess = null; // Tiến trình chặn phím ngầm (C#)
 
 let socket = null;
 let screenCaptureInterval = null;
 let isConnected = false;
+
+// ═══════════════════════════════════════════════════════════════
+//  BLOCK KEYS COMPILATION (C#)
+// ═══════════════════════════════════════════════════════════════
+function compileBlockKeys() {
+  if (process.platform !== 'win32') return;
+  const sourcePath = path.join(__dirname, 'BlockKeys.cs');
+  const exePath = path.join(__dirname, 'BlockKeys.exe');
+
+  if (!fs.existsSync(sourcePath)) {
+    console.error('[Student] Không tìm thấy BlockKeys.cs');
+    return;
+  }
+
+  if (fs.existsSync(exePath)) {
+    return;
+  }
+
+  console.log('[Student] Đang biên dịch BlockKeys.cs...');
+  const cscPath = 'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe';
+  if (!fs.existsSync(cscPath)) {
+    console.error('[Student] Không tìm thấy csc.exe. Bỏ qua chặn bàn phím nâng cao.');
+    return;
+  }
+
+  try {
+    execSync(`"${cscPath}" /target:winexe /out:"${exePath}" "${sourcePath}"`, { stdio: 'ignore' });
+    console.log('[Student] Biên dịch thành công BlockKeys.exe');
+  } catch (err) {
+    console.error('[Student] Lỗi biên dịch BlockKeys.cs:', err.message);
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════
 //  SETUP WINDOW
@@ -115,16 +149,29 @@ function createLockWindow(message) {
     if (lockWindow) lockWindow.focus();
   });
 
-  // Vô hiệu hóa các tổ hợp phím tắt hệ thống nguy hiểm
+  // Chạy file chặn phím ngầm (C#) để chặn hoàn toàn Alt+Tab, Win, Ctrl+Esc, v.v.
+  if (process.platform === 'win32') {
+    const exePath = path.join(__dirname, 'BlockKeys.exe');
+    if (fs.existsSync(exePath)) {
+      try {
+        blockerProcess = spawn(exePath);
+        console.log('[Student] Đã khởi chạy BlockKeys.exe (PID:', blockerProcess.pid, ')');
+      } catch (err) {
+        console.error('[Student] Không thể chạy BlockKeys.exe:', err.message);
+      }
+    }
+  }
+
+  // Vô hiệu hóa các tổ hợp phím tắt hệ thống trong Electron (phòng hờ)
   try {
     globalShortcut.register('Alt+Tab', () => {});
     globalShortcut.register('CommandOrControl+Tab', () => {});
-    globalShortcut.register('CommandOrControl+Esc', () => {}); // Ctrl+Esc (Start menu)
+    globalShortcut.register('CommandOrControl+Esc', () => {});
     globalShortcut.register('Alt+F4', () => {});
-    globalShortcut.register('Super', () => {}); // Phím Windows
-    globalShortcut.register('Super+D', () => {}); // Phím Win+D (Show desktop)
-    globalShortcut.register('Super+M', () => {}); // Win+M (Minimize)
-    globalShortcut.register('Super+Tab', () => {}); // Win+Tab
+    globalShortcut.register('Super', () => {});
+    globalShortcut.register('Super+D', () => {});
+    globalShortcut.register('Super+M', () => {});
+    globalShortcut.register('Super+Tab', () => {});
     globalShortcut.register('Alt+Esc', () => {});
   } catch (e) {
     console.log('[Student] Không thể đăng ký một số phím tắt khóa:', e);
@@ -141,6 +188,17 @@ function closeLockWindow() {
     
     // Gỡ các phím tắt đã bị khóa
     globalShortcut.unregisterAll();
+  }
+
+  // Tắt tiến trình chặn phím ngầm C#
+  if (blockerProcess) {
+    try {
+      blockerProcess.kill();
+      console.log('[Student] Đã dừng BlockKeys.exe');
+    } catch (err) {
+      console.error('[Student] Lỗi khi dừng BlockKeys.exe:', err.message);
+    }
+    blockerProcess = null;
   }
 }
 
@@ -522,6 +580,7 @@ function createTray() {
 //  APP LIFECYCLE
 // ═══════════════════════════════════════════════════════════════
 app.whenReady().then(() => {
+  compileBlockKeys();
   createSetupWindow();
   createTray();
 
@@ -540,4 +599,7 @@ app.on('window-all-closed', (e) => {
 app.on('before-quit', () => {
   if (socket) socket.disconnect();
   stopScreenCapture();
+  if (blockerProcess) {
+    try { blockerProcess.kill(); } catch (e) {}
+  }
 });
