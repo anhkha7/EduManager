@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── File Transfer ─────────────────────────────────────────
   onFileReceiving: (cb) => ipcRenderer.on('file-receiving', (_, d) => cb(d)),
   onFileReceived: (cb) => ipcRenderer.on('file-received', (_, d) => cb(d)),
+  submitFile: () => ipcRenderer.invoke('student:submit-file'),
+  onSubmitAck: (cb) => ipcRenderer.on('submit:ack', (_, d) => cb(d)),
 
   // ── Window controls ───────────────────────────────────────
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),

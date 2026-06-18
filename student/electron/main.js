@@ -271,9 +271,9 @@ function connectToServer(serverIp, serverPort) {
   // ── File Transfer (Nhận file từ giáo viên) ─────────────────────
   const fileBuffers = new Map(); // fileId -> { fileName, chunks: [], totalChunks }
 
-  socket.on('file:start', ({ fileId, fileName, totalChunks, fileSize }) => {
-    console.log(`[Student] Bắt đầu nhận file: ${fileName} (${totalChunks} chunks, ${fileSize} bytes)`);
-    fileBuffers.set(fileId, { fileName, totalChunks, chunks: [] });
+  socket.on('file:start', ({ fileId, fileName, totalChunks, fileSize, destFolder }) => {
+    console.log(`[Student] Bắt đầu nhận file: ${fileName} (${totalChunks} chunks, destFolder=${destFolder})`);
+    fileBuffers.set(fileId, { fileName, totalChunks, chunks: [], destFolder: destFolder || 'EduManager' });
     if (setupWindow && !setupWindow.isDestroyed()) {
       setupWindow.webContents.send('file-receiving', { fileName, fileSize });
     }
@@ -291,24 +291,28 @@ function connectToServer(serverIp, serverPort) {
     fileBuffers.delete(fileId);
 
     try {
-      // Ghép tất cả chunk lại thành file hoàn chỉnh
       const completeBuffer = Buffer.concat(entry.chunks.filter(Boolean));
 
-      // Tạo thư mục lưu nếu chưa tồn tại
-      const saveDir = path.join(os.homedir(), 'Downloads', 'EduManager');
-      await fs.promises.mkdir(saveDir, { recursive: true });
+      // Giải quyết thư mục lưu dựa theo destFolder
+      const home = os.homedir();
+      let saveDir;
+      switch (entry.destFolder) {
+        case 'Desktop':   saveDir = path.join(home, 'Desktop'); break;
+        case 'Documents': saveDir = path.join(home, 'Documents'); break;
+        case 'Downloads': saveDir = path.join(home, 'Downloads'); break;
+        case 'EduManager': saveDir = path.join(home, 'Downloads', 'EduManager'); break;
+        default: saveDir = path.join(home, 'Downloads', 'EduManager', entry.destFolder); break;
+      }
 
+      await fs.promises.mkdir(saveDir, { recursive: true });
       const savePath = path.join(saveDir, fileName);
       await fs.promises.writeFile(savePath, completeBuffer);
       console.log(`[Student] Đã lưu file: ${savePath}`);
 
-      // Thông báo cho UI học sinh
       const studentName = store.get('studentName', os.hostname());
       if (setupWindow && !setupWindow.isDestroyed()) {
-        setupWindow.webContents.send('file-received', { fileName, savePath, fileSize: completeBuffer.length });
+        setupWindow.webContents.send('file-received', { fileName, savePath, fileSize: completeBuffer.length, destFolder: entry.destFolder });
       }
-
-      // Gửi ack trở lại cho giáo viên
       socket.emit('file:received-ack', { fileId, fileName, studentName });
     } catch (err) {
       console.error('[Student] Lỗi lưu file:', err.message);
@@ -403,6 +407,45 @@ ipcMain.handle('student:webrtc-answer', (_, { answer }) => {
 ipcMain.handle('student:webrtc-ice-candidate', (_, { candidate }) => {
   console.log('[Student IPC] student:webrtc-ice-candidate');
   if (socket && isConnected) socket.emit('webrtc:ice-candidate', { candidate });
+});
+
+// Gửi bài nộp từ học sinh tới giáo viên
+ipcMain.handle('student:submit-file', async () => {
+  if (!socket || !isConnected) return { success: false, error: 'Chưa kết nối' };
+
+  // Mở hộp thoại chọn file
+  const { dialog } = require('electron');
+  const result = await dialog.showOpenDialog(setupWindow, {
+    title: 'Chọn file để nộp bài',
+    properties: ['openFile']
+  });
+  if (result.canceled || result.filePaths.length === 0) return { success: false, canceled: true };
+
+  const filePath = result.filePaths[0];
+  const fileName = path.basename(filePath);
+  const studentName = store.get('studentName', os.hostname());
+
+  try {
+    const buffer = fs.readFileSync(filePath);
+    const CHUNK_SIZE = 256 * 1024;
+    const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE);
+    const fileId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    socket.emit('student:submit-start', { fileId, fileName, totalChunks, fileSize: buffer.length, studentName });
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const chunk = buffer.slice(start, start + CHUNK_SIZE);
+      socket.emit('student:submit-chunk', { fileId, chunkIndex: i, chunk: chunk.toString('base64') });
+      await new Promise(resolve => setImmediate(resolve));
+    }
+
+    socket.emit('student:submit-done', { fileId });
+    return { success: true, fileName };
+  } catch (err) {
+    console.error('[Student] Lỗi nộp bài:', err.message);
+    return { success: false, error: err.message };
+  }
 });
 
 // Window controls

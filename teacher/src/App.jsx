@@ -21,6 +21,7 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [chatMessages, setChatMessages] = useState([]);
   const [fileTransferLogs, setFileTransferLogs] = useState([]);
+  const [submissionLogs, setSubmissionLogs] = useState([]);
   
   const streamRef = useRef(null);
   const peerConnectionsRef = useRef(new Map());
@@ -80,6 +81,11 @@ export default function App() {
         type: 'ack', fileName, studentName, fileId, time: Date.now(), icon: '📥'
       }]);
       addToast(`✅ ${studentName} đã nhận file: ${fileName}`, 'success');
+    });
+
+    api.onFileSubmitted((data) => {
+      setSubmissionLogs(prev => [data, ...prev]);
+      addToast(`📥 ${data.studentName} vừa nộp bài: ${data.fileName}`, 'success');
     });
 
     api.onWebRTCJoin(async ({ studentId }) => {
@@ -168,7 +174,7 @@ export default function App() {
     });
 
     return () => {
-      ['student:joined','student:left','student:thumbnail','students:state-changed','chat:incoming', 'webrtc:join-broadcast', 'webrtc:answer', 'webrtc:ice-candidate', 'file:progress', 'file:ack']
+      ['student:joined','student:left','student:thumbnail','students:state-changed','chat:incoming', 'webrtc:join-broadcast', 'webrtc:answer', 'webrtc:ice-candidate', 'file:progress', 'file:ack', 'file:submitted']
         .forEach(ch => api.removeAllListeners(ch));
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -357,6 +363,7 @@ export default function App() {
           show={showFileTransfer}
           students={students}
           logs={fileTransferLogs}
+          submissionLogs={submissionLogs}
           onSent={handleFileSent}
           onClose={() => setShowFileTransfer(false)}
         />

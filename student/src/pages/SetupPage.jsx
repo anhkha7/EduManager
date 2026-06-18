@@ -10,7 +10,9 @@ export default function SetupPage() {
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [receivedFiles, setReceivedFiles] = useState([]);
-  const [incomingFile, setIncomingFile] = useState(null); // file đang được nhận
+  const [incomingFile, setIncomingFile] = useState(null);
+  const [submitStatus, setSubmitStatus] = useState('idle'); // idle | submitting | done | error
+  const [submitMsg, setSubmitMsg] = useState('');
 
   const api = window.electronAPI;
 
@@ -43,12 +45,18 @@ export default function SetupPage() {
     api.onFileReceiving(({ fileName, fileSize }) => {
       setIncomingFile({ fileName, fileSize });
     });
-    api.onFileReceived(({ fileName, savePath, fileSize }) => {
+    api.onFileReceived(({ fileName, savePath, fileSize, destFolder }) => {
       setIncomingFile(null);
       setReceivedFiles(prev => [
-        { fileName, savePath, fileSize, time: Date.now() },
-        ...prev.slice(0, 9) // giữ tối đa 10 file
+        { fileName, savePath, fileSize, destFolder, time: Date.now() },
+        ...prev.slice(0, 9)
       ]);
+    });
+
+    api.onSubmitAck(({ fileName }) => {
+      setSubmitStatus('done');
+      setSubmitMsg(`✅ Đã nộp: ${fileName}`);
+      setTimeout(() => setSubmitStatus('idle'), 4000);
     });
 
     return () => {
@@ -56,6 +64,7 @@ export default function SetupPage() {
       api.removeAllListeners('chat-received');
       api.removeAllListeners('file-receiving');
       api.removeAllListeners('file-received');
+      api.removeAllListeners('submit:ack');
     };
   }, []);
 
@@ -82,6 +91,23 @@ export default function SetupPage() {
     if (!chatInput.trim() || status !== 'connected') return;
     await api.sendChat(chatInput.trim());
     setChatInput('');
+  };
+
+  const handleSubmitFile = async () => {
+    if (status !== 'connected') return;
+    setSubmitStatus('submitting');
+    setSubmitMsg('');
+    const result = await api.submitFile();
+    if (result.canceled) {
+      setSubmitStatus('idle');
+    } else if (!result.success) {
+      setSubmitStatus('error');
+      setSubmitMsg(result.error || 'Nộp bài thất bại');
+      setTimeout(() => setSubmitStatus('idle'), 4000);
+    } else {
+      setSubmitStatus('submitting');
+      setSubmitMsg(`Đang gửi ${result.fileName}...`);
+    }
   };
 
   const statusLabels = {
@@ -173,6 +199,30 @@ export default function SetupPage() {
         {/* Chat với giáo viên */}
         {status === 'connected' && (
           <>
+            {/* Nộp bài */}
+            <button
+              onClick={handleSubmitFile}
+              disabled={submitStatus === 'submitting'}
+              style={{
+                width: '100%', marginTop: 8,
+                padding: '10px',
+                borderRadius: 8, border: 'none',
+                background: submitStatus === 'done' ? 'rgba(74,222,128,0.15)'
+                  : submitStatus === 'error' ? 'rgba(239,68,68,0.15)'
+                  : 'linear-gradient(135deg, #8b5cf6, #6366f1)',
+                color: submitStatus === 'done' ? '#4ade80'
+                  : submitStatus === 'error' ? '#f87171'
+                  : '#fff',
+                fontWeight: 700, fontSize: 13,
+                cursor: submitStatus === 'submitting' ? 'wait' : 'pointer',
+                transition: 'all 0.3s'
+              }}
+            >
+              {submitStatus === 'submitting' ? '⏳ Đang gửi bài...'
+                : submitStatus === 'done' ? submitMsg
+                : submitStatus === 'error' ? `⚠️ ${submitMsg}`
+                : '📤 Nộp bài cho giáo viên'}
+            </button>
             {messages.length > 0 && (
               <div className="messages-section">
                 <div className="messages-title">💬 Tin nhắn từ giáo viên</div>
@@ -243,7 +293,12 @@ export default function SetupPage() {
                       </div>
                     </div>
                     <div style={{ fontSize: 11, color: '#4ade80', marginTop: 4 }}>
-                      ✅ Đã lưu vào Downloads/EduManager/
+                      ✅ Đã lưu vào: {f.destFolder === 'Desktop' ? 'Màn hình nền'
+                        : f.destFolder === 'Documents' ? 'Tài liệu'
+                        : f.destFolder === 'Downloads' ? 'Tải xuống'
+                        : f.destFolder === 'EduManager' ? 'Downloads/EduManager'
+                        : `Downloads/EduManager/${f.destFolder}`
+                      }
                     </div>
                   </div>
                 ))}

@@ -20,6 +20,8 @@ const io = new Server(httpServer, {
 });
 // Danh sách học sinh đang kết nối: socketId -> StudentInfo
 const students = new Map();
+// Thư mục mặc định để thu bài nộp từ học sinh
+let submissionSaveDir = path.join(os.homedir(), 'Downloads', 'EduManager', 'Submissions');
 io.on('connection', (socket) => {
   console.log(`[Server] Kết nối mới: ${socket.id} từ ${socket.handshake.address}`);
   // ── Học sinh tham gia lớp ──────────────────────────────────────
@@ -86,6 +88,42 @@ io.on('connection', (socket) => {
   socket.on('file:received-ack', ({ fileId, fileName, studentName }) => {
     console.log(`[Server] Học sinh ${studentName} đã nhận file: ${fileName}`);
     notifyRenderer('file:ack', { fileId, fileName, studentName });
+  });
+
+  // ── Nhận bài nộp từ học sinh ─────────────────────────────────
+  const submitBuffers = new Map(); // fileId -> { fileName, studentName, chunks: [] }
+  socket.on('student:submit-start', ({ fileId, fileName, totalChunks, fileSize, studentName }) => {
+    console.log(`[Server] Nhận bài nộp: ${studentName} → ${fileName}`);
+    submitBuffers.set(fileId, { fileName, studentName, totalChunks, chunks: [] });
+  });
+  socket.on('student:submit-chunk', ({ fileId, chunkIndex, chunk }) => {
+    const entry = submitBuffers.get(fileId);
+    if (!entry) return;
+    entry.chunks[chunkIndex] = Buffer.from(chunk, 'base64');
+  });
+  socket.on('student:submit-done', async ({ fileId }) => {
+    const entry = submitBuffers.get(fileId);
+    if (!entry) return;
+    submitBuffers.delete(fileId);
+    try {
+      const completeBuffer = Buffer.concat(entry.chunks.filter(Boolean));
+      const studentDir = path.join(submissionSaveDir, entry.studentName);
+      await fs.promises.mkdir(studentDir, { recursive: true });
+      const savePath = path.join(studentDir, entry.fileName);
+      await fs.promises.writeFile(savePath, completeBuffer);
+      console.log(`[Server] Đã lưu bài nộp: ${savePath}`);
+      notifyRenderer('file:submitted', {
+        fileId,
+        fileName: entry.fileName,
+        studentName: entry.studentName,
+        savePath,
+        fileSize: completeBuffer.length,
+        time: Date.now()
+      });
+      socket.emit('submit:ack', { fileId, fileName: entry.fileName });
+    } catch (err) {
+      console.error('[Server] Lỗi lưu bài nộp:', err.message);
+    }
   });
 });
 // Khởi động server
@@ -258,36 +296,28 @@ ipcMain.handle('teacher:open-file-dialog', async () => {
   return { filePath, fileName, fileSize: stat.size };
 });
 
-// Gửi file tới học sinh theo cơ chế chunk
+// Gửi file tới học sinh theo cơ chế chunk (có destFolder)
 const CHUNK_SIZE = 256 * 1024; // 256 KB mỗi chunk
-ipcMain.handle('teacher:send-file', async (_, { studentId, filePath, fileName }) => {
+ipcMain.handle('teacher:send-file', async (_, { studentId, filePath, fileName, destFolder }) => {
   try {
     const buffer = fs.readFileSync(filePath);
     const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE);
     const fileId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const target = studentId === 'all' ? io.to('students') : io.to(studentId);
 
-    // Thông báo bắt đầu
-    target.emit('file:start', { fileId, fileName, totalChunks, fileSize: buffer.length });
+    // Thông báo bắt đầu (kèm destFolder)
+    target.emit('file:start', { fileId, fileName, totalChunks, fileSize: buffer.length, destFolder: destFolder || 'EduManager' });
 
     // Gửi từng chunk
     for (let i = 0; i < totalChunks; i++) {
       const start = i * CHUNK_SIZE;
       const chunk = buffer.slice(start, start + CHUNK_SIZE);
-      target.emit('file:chunk', {
-        fileId,
-        chunkIndex: i,
-        totalChunks,
-        chunk: chunk.toString('base64')
-      });
-      // Cập nhật tiến trình cho teacher UI
+      target.emit('file:chunk', { fileId, chunkIndex: i, totalChunks, chunk: chunk.toString('base64') });
       const progress = Math.round(((i + 1) / totalChunks) * 100);
       notifyRenderer('file:progress', { fileId, fileName, progress });
-      // Nhường vòng lặp event để tránh block
       await new Promise(resolve => setImmediate(resolve));
     }
 
-    // Thông báo kết thúc
     target.emit('file:done', { fileId, fileName });
     notifyRenderer('file:progress', { fileId, fileName, progress: 100, done: true });
     return { success: true };
@@ -295,6 +325,21 @@ ipcMain.handle('teacher:send-file', async (_, { studentId, filePath, fileName })
     console.error('[Teacher] Lỗi gửi file:', err.message);
     return { success: false, error: err.message };
   }
+});
+
+// Chọn thư mục thu bài
+ipcMain.handle('teacher:open-save-dir-dialog', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn thư mục để thu bài nộp',
+    properties: ['openDirectory', 'createDirectory']
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  submissionSaveDir = result.filePaths[0];
+  return submissionSaveDir;
+});
+ipcMain.handle('teacher:get-save-dir', () => submissionSaveDir);
+ipcMain.handle('teacher:open-submission-folder', () => {
+  shell.openPath(submissionSaveDir);
 });
 
 // ── Window controls ───────────────────────────────────────────

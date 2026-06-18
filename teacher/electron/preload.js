@@ -37,9 +37,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── File Transfer ─────────────────────────────────────────
   openFileDialog: () => ipcRenderer.invoke('teacher:open-file-dialog'),
-  sendFile: (studentId, filePath, fileName) => ipcRenderer.invoke('teacher:send-file', { studentId, filePath, fileName }),
+  sendFile: (studentId, filePath, fileName, destFolder) => ipcRenderer.invoke('teacher:send-file', { studentId, filePath, fileName, destFolder }),
   onFileProgress: (cb) => ipcRenderer.on('file:progress', (_, d) => cb(d)),
   onFileAck: (cb) => ipcRenderer.on('file:ack', (_, d) => cb(d)),
+  // Thu bài
+  openSaveDirDialog: () => ipcRenderer.invoke('teacher:open-save-dir-dialog'),
+  getSaveDir: () => ipcRenderer.invoke('teacher:get-save-dir'),
+  openSubmissionFolder: () => ipcRenderer.invoke('teacher:open-submission-folder'),
+  onFileSubmitted: (cb) => ipcRenderer.on('file:submitted', (_, d) => cb(d)),
 
   // ── Window controls ───────────────────────────────────────────
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
