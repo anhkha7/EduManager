@@ -54,9 +54,8 @@ export default function SetupPage() {
     });
 
     api.onSubmitAck(({ fileName }) => {
-      setSubmitStatus('done');
-      setSubmitMsg(`✅ Đã nộp: ${fileName}`);
-      setTimeout(() => setSubmitStatus('idle'), 4000);
+      // Giáo viên đã xác nhận lưu file — cập nhật thông báo nếu cần
+      setSubmitMsg(`✅ Giáo viên đã lưu: ${fileName}`);
     });
 
     return () => {
@@ -105,8 +104,10 @@ export default function SetupPage() {
       setSubmitMsg(result.error || 'Nộp bài thất bại');
       setTimeout(() => setSubmitStatus('idle'), 4000);
     } else {
-      setSubmitStatus('submitting');
-      setSubmitMsg(`Đang gửi ${result.fileName}...`);
+      // File đã gửi xong (tất cả chunks đã gửi) → hiện done ngay
+      setSubmitStatus('done');
+      setSubmitMsg(`✅ Đã nộp: ${result.fileName}`);
+      setTimeout(() => setSubmitStatus('idle'), 5000);
     }
   };
 

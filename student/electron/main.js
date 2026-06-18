@@ -319,6 +319,13 @@ function connectToServer(serverIp, serverPort) {
     }
   });
 
+  // Nhận xác nhận giáo viên đã lưu bài nộp
+  socket.on('submit:ack', ({ fileId, fileName }) => {
+    if (setupWindow && !setupWindow.isDestroyed()) {
+      setupWindow.webContents.send('submit:ack', { fileId, fileName });
+    }
+  });
+
   socket.on('teacher:disconnect', () => {
     console.log('[Student] Giáo viên đã ngắt kết nối');
     closeLockWindow();
