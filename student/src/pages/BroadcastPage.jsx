@@ -49,9 +49,13 @@ export default function BroadcastPage() {
     };
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
+      if (event.candidate && event.candidate.candidate) {
         console.log('[WebRTC] Student generated ICE candidate:', event.candidate.candidate);
-        api.sendWebRTCIceCandidate(event.candidate);
+        api.sendWebRTCIceCandidate({
+          candidate: event.candidate.candidate,
+          sdpMid: event.candidate.sdpMid,
+          sdpMLineIndex: event.candidate.sdpMLineIndex
+        });
       }
     };
 
@@ -70,7 +74,9 @@ export default function BroadcastPage() {
         while (iceCandidatesBuffer.length > 0) {
           const candidate = iceCandidatesBuffer.shift();
           try {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            if (candidate && candidate.candidate) {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            }
           } catch (e) {
             console.warn('[WebRTC] Error adding buffered ICE candidate:', e);
           }
@@ -89,11 +95,15 @@ export default function BroadcastPage() {
 
     api.onWebRTCIceCandidate(async ({ candidate }) => {
       try {
-        console.log('[WebRTC] Student received ICE candidate from teacher:', candidate.candidate);
+        console.log('[WebRTC] Student received ICE candidate from teacher:', candidate && candidate.candidate);
         if (pc.remoteDescription && pc.remoteDescription.type) {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          if (candidate && candidate.candidate) {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          }
         } else {
-          iceCandidatesBuffer.push(candidate);
+          if (candidate && candidate.candidate) {
+            iceCandidatesBuffer.push(candidate);
+          }
         }
       } catch (e) {
         console.warn('[WebRTC] Error adding ICE candidate:', e);

@@ -97,8 +97,12 @@ export default function App() {
       streamRef.current.getTracks().forEach(track => pc.addTrack(track, streamRef.current));
 
       pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          api.sendWebRTCIceCandidate(studentId, event.candidate);
+        if (event.candidate && event.candidate.candidate) {
+          api.sendWebRTCIceCandidate(studentId, {
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMLineIndex: event.candidate.sdpMLineIndex
+          });
         }
       };
 
@@ -119,7 +123,9 @@ export default function App() {
         while (buffer.length > 0) {
           const candidate = buffer.shift();
           try {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            if (candidate && candidate.candidate) {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            }
           } catch (e) {
             console.warn(`[WebRTC] Error adding buffered ICE candidate for ${studentId}:`, e);
           }
@@ -135,12 +141,16 @@ export default function App() {
 
       try {
         if (pc.remoteDescription && pc.remoteDescription.type) {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          if (candidate && candidate.candidate) {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          }
         } else {
           if (!iceCandidatesBuffersRef.current.has(studentId)) {
             iceCandidatesBuffersRef.current.set(studentId, []);
           }
-          iceCandidatesBuffersRef.current.get(studentId).push(candidate);
+          if (candidate && candidate.candidate) {
+            iceCandidatesBuffersRef.current.get(studentId).push(candidate);
+          }
         }
       } catch (e) {
         console.warn(`[WebRTC] Error adding ICE candidate for ${studentId}:`, e);
