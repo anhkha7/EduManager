@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, shell, globalShortcut } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -81,6 +81,7 @@ function createLockWindow(message) {
     y: 0,
     frame: false,
     fullscreen: true,
+    kiosk: true, // Chế độ kiosk: khóa ứng dụng toàn màn hình, ngăn người dùng thoát
     alwaysOnTop: true,
     skipTaskbar: true,
     focusable: true,
@@ -109,6 +110,26 @@ function createLockWindow(message) {
     if (!lockWindow._allowClose) e.preventDefault();
   });
 
+  // Ép focus liên tục nếu mất focus (tránh Alt+Tab hoặc click ra ngoài bằng cách nào đó)
+  lockWindow.on('blur', () => {
+    if (lockWindow) lockWindow.focus();
+  });
+
+  // Vô hiệu hóa các tổ hợp phím tắt hệ thống nguy hiểm
+  try {
+    globalShortcut.register('Alt+Tab', () => {});
+    globalShortcut.register('CommandOrControl+Tab', () => {});
+    globalShortcut.register('CommandOrControl+Esc', () => {}); // Ctrl+Esc (Start menu)
+    globalShortcut.register('Alt+F4', () => {});
+    globalShortcut.register('Super', () => {}); // Phím Windows
+    globalShortcut.register('Super+D', () => {}); // Phím Win+D (Show desktop)
+    globalShortcut.register('Super+M', () => {}); // Win+M (Minimize)
+    globalShortcut.register('Super+Tab', () => {}); // Win+Tab
+    globalShortcut.register('Alt+Esc', () => {});
+  } catch (e) {
+    console.log('[Student] Không thể đăng ký một số phím tắt khóa:', e);
+  }
+
   lockWindow.on('closed', () => { lockWindow = null; });
 }
 
@@ -117,6 +138,9 @@ function closeLockWindow() {
     lockWindow._allowClose = true;
     lockWindow.close();
     lockWindow = null;
+    
+    // Gỡ các phím tắt đã bị khóa
+    globalShortcut.unregisterAll();
   }
 }
 
