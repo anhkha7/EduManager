@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const { io } = require('socket.io-client');
 const { execSync, spawn } = require('child_process');
+const hostsManager = require('./hostsManager');
 
 const isDev = process.env.NODE_ENV === 'development';
 
@@ -45,6 +46,10 @@ let appBlockRules = [];      // Mảng từ khóa cần chặn (chữ thường)
 let appBlockMode = 'kill';   // 'kill' | 'warn'
 let isMonitoring = false;
 let lastViolations = new Set(); // Tránh gửi trùng lặp
+
+// WEB BLOCK STATE
+let webBlockRules = [];
+let isWebMonitoring = false;
 
 // ═══════════════════════════════════════════════════════════════
 //  BLOCK KEYS COMPILATION (C#)
@@ -434,11 +439,39 @@ function connectToServer(serverIp, serverPort) {
         isMonitoring = true;
         notifySetup('app-block-status', { monitoring: true, rules: [], mode: appBlockMode });
       }
-      console.log(`[Student] Bật giám sát: ${appBlockRules.length} từ khóa, chế độ: ${appBlockMode}`);
+      console.log(`[Student] Bật giám sát App: ${appBlockRules.length} từ khóa, chế độ: ${appBlockMode}`);
     } else {
       stopAppMonitor();
       appBlockRules = [];
-      console.log('[Student] Tắt giám sát');
+      console.log('[Student] Tắt giám sát App');
+    }
+  });
+
+  // ── Nhận lệnh kiểm soát Website ───────────────────────────────
+  socket.on('command:web-block', ({ enabled, domains }) => {
+    if (enabled) {
+      webBlockRules = Array.isArray(domains) ? domains : [];
+      isWebMonitoring = true;
+      const success = hostsManager.blockWebsites(webBlockRules);
+      
+      notifySetup('web-block-status', { monitoring: true, rules: webBlockRules });
+      console.log(`[Student] Bật khóa Web: ${webBlockRules.length} domains. Success=${success}`);
+      
+      if (!success) {
+        // Có thể do thiếu quyền Admin
+        if (setupWindow && !setupWindow.isDestroyed()) {
+          setupWindow.webContents.send('app-violation-detected', { 
+            keyword: 'LỖI: Cần quyền Administrator để khóa Web!', 
+            mode: 'warn' 
+          });
+        }
+      }
+    } else {
+      hostsManager.unblockAllWebsites();
+      webBlockRules = [];
+      isWebMonitoring = false;
+      notifySetup('web-block-status', { monitoring: false, rules: [] });
+      console.log('[Student] Đã tắt khóa Web');
     }
   });
 }
@@ -709,6 +742,12 @@ ipcMain.handle('get-monitor-status', () => ({
   mode: appBlockMode
 }));
 
+// Lấy trạng thái khóa Web
+ipcMain.handle('get-web-monitor-status', () => ({
+  monitoring: isWebMonitoring,
+  rules: webBlockRules
+}));
+
 // Window controls
 ipcMain.handle('window:minimize', () => setupWindow?.minimize());
 ipcMain.handle('window:close', () => {
@@ -772,6 +811,7 @@ app.on('before-quit', () => {
   if (socket) socket.disconnect();
   stopScreenCapture();
   stopAppMonitor();
+  hostsManager.unblockAllWebsites(); // Dọn dẹp file hosts
   if (blockerProcess) {
     try { blockerProcess.kill(); } catch (e) {}
   }

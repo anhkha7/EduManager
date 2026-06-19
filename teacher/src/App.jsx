@@ -7,6 +7,7 @@ import StudentGrid from './components/StudentGrid';
 import ChatPanel from './components/ChatPanel';
 import FileTransferPanel from './components/FileTransferPanel';
 import AppBlockPanel from './components/AppBlockPanel';
+import WebBlockPanel from './components/WebBlockPanel';
 import StudentDetail from './components/StudentDetail';
 import Toast from './components/Toast';
 
@@ -264,6 +265,7 @@ export default function App() {
           onShowChat={() => setActivePanel(activePanel === 'chat' ? null : 'chat')}
           onShowFileTransfer={() => setActivePanel(activePanel === 'file' ? null : 'file')}
           onShowAppBlock={() => setActivePanel(activePanel === 'appblock' ? null : 'appblock')}
+          onShowWebBlock={() => setActivePanel(activePanel === 'webblock' ? null : 'webblock')}
           serverInfo={serverInfo}
         />
 
@@ -331,6 +333,12 @@ export default function App() {
           students={students}
           onClose={() => setActivePanel(null)}
           onViolation={(data) => addToast(`⚠️ ${data.studentName} vi phạm: ${data.keyword}`, 'error')}
+        />
+
+        {/* ── Web Block Panel ────────────────────────── */}
+        <WebBlockPanel
+          show={activePanel === 'webblock'}
+          onClose={() => setActivePanel(null)}
         />
       </div>
 

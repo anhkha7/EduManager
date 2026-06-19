@@ -33,6 +33,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onAppBlockStatus: (cb) => ipcRenderer.on('app-block-status', (_, d) => cb(d)),
   onAppViolationDetected: (cb) => ipcRenderer.on('app-violation-detected', (_, d) => cb(d)),
 
+  // ── Web Monitor ───────────────────────────────────────────
+  getWebMonitorStatus: () => ipcRenderer.invoke('get-web-monitor-status'),
+  onWebBlockStatus: (cb) => ipcRenderer.on('web-block-status', (_, d) => cb(d)),
+
   // ── Window controls ───────────────────────────────────────
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowClose: () => ipcRenderer.invoke('window:close'),

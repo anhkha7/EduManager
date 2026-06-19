@@ -250,6 +250,18 @@ ipcMain.handle('teacher:set-app-block', (_, { enabled, rules, mode }) => {
   }
   return { success: true };
 });
+
+// ── Kiểm soát Website ─────────────────────────────────────────
+ipcMain.handle('teacher:set-web-block', (_, { enabled, domains }) => {
+  if (enabled) {
+    console.log(`[Teacher] Bật khóa Website: ${(domains || []).length} domain`);
+    io.to('students').emit('command:web-block', { enabled: true, domains: domains || [] });
+  } else {
+    console.log('[Teacher] Tắt khóa Website');
+    io.to('students').emit('command:web-block', { enabled: false, domains: [] });
+  }
+  return { success: true };
+});
 // ── Video Stream (Teacher -> Student) ─────────────────────────
 ipcMain.on('teacher:stream-start', () => {
   io.to('students').emit('broadcast:stream-start');

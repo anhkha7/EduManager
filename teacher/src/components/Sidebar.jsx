@@ -1,6 +1,6 @@
 export default function Sidebar({
   studentCount, lockedCount, isBroadcasting,
-  onLockAll, onUnlockAll, onBroadcastToggle, onShowChat, onShowFileTransfer, onShowAppBlock,
+  onLockAll, onUnlockAll, onBroadcastToggle, onShowChat, onShowFileTransfer, onShowAppBlock, onShowWebBlock,
   serverInfo
 }) {
   return (
@@ -45,6 +45,11 @@ export default function Sidebar({
         <button className="action-btn warning" onClick={onShowAppBlock} title="Kiểm soát ứng dụng học sinh">
           <span className="action-btn-icon">🚫</span>
           Kiểm soát App
+        </button>
+
+        <button className="action-btn danger" onClick={onShowWebBlock} title="Chặn truy cập Website">
+          <span className="action-btn-icon">🌐</span>
+          Khóa Website
         </button>
       </div>
 

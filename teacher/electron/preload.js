@@ -48,6 +48,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stopAppBlock: () => ipcRenderer.invoke('teacher:set-app-block', { enabled: false, rules: [], mode: 'kill' }),
   onAppViolation: (cb) => ipcRenderer.on('app:violation', (_, d) => cb(d)),
 
+  // ── Web Block ────────────────────────────────────────
+  sendWebBlockRules: (domains) => ipcRenderer.invoke('teacher:set-web-block', { enabled: true, domains }),
+  stopWebBlock: () => ipcRenderer.invoke('teacher:set-web-block', { enabled: false, domains: [] }),
+
   // ── Window controls ───────────────────────────────────────────
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowMaximize: () => ipcRenderer.invoke('window:maximize'),
