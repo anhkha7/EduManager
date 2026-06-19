@@ -576,12 +576,20 @@ function startAppMonitor() {
       }
 
       if (appBlockMode === 'kill') {
-        // Đóng ngay lập tức ứng dụng vi phạm
+        const { exec } = require('child_process');
         if (v.process) {
-          const { exec } = require('child_process');
           exec(`taskkill /F /IM "${v.process}.exe"`, { windowsHide: true }, (err) => {
             if (err) console.log(`[Student] taskkill lỗi: ${err.message}`);
             else console.log(`[Student] Đã đóng: ${v.process}.exe`);
+          });
+        }
+        if (v.title) {
+          // Thoát dấu nháy đơn cho powershell
+          const safeTitle = v.keyword.replace(/'/g, "''");
+          const psCmd = `powershell -NoProfile -NonInteractive -Command "Get-Process | Where-Object { $_.MainWindowTitle -like '*${safeTitle}*' } | Stop-Process -Force"`;
+          exec(psCmd, { windowsHide: true }, (err) => {
+            if (err) console.log(`[Student] powershell kill lỗi: ${err.message}`);
+            else console.log(`[Student] Đã đóng cửa sổ chứa từ khóa: ${v.keyword}`);
           });
         }
         notifySetup('app-violation-detected', { ...v, mode: 'kill' });

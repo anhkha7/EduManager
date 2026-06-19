@@ -81,7 +81,7 @@ export default function AppBlockPanel({ show, students, onClose, onViolation }) 
   const rulesList = [...activeRules];
 
   return (
-    <div className={`chat-panel ${show ? '' : 'hidden'}`} style={{ width: 320 }}>
+    <div className={`chat-panel ${show ? '' : 'hidden'}`}>
       {/* Header */}
       <div className="chat-header">
         <div>

@@ -96,7 +96,7 @@ export default function FileTransferPanel({ show, students, logs, submissionLogs
   const destLabel = DEST_FOLDERS.find(f => f.value === destFolder)?.desc || destFolder;
 
   return (
-    <div className={`chat-panel ${show ? '' : 'hidden'}`} style={{ width: 320 }}>
+    <div className={`chat-panel ${show ? '' : 'hidden'}`}>
       {/* Header */}
       <div className="chat-header">
         <div>

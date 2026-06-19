@@ -14,9 +14,7 @@ export default function App() {
   const [students, setStudents] = useState([]);
   const [serverInfo, setServerInfo] = useState({ ip: '...', port: 3722 });
   const [isBroadcasting, setIsBroadcasting] = useState(false);
-  const [showChat, setShowChat] = useState(false);
-  const [showFileTransfer, setShowFileTransfer] = useState(false);
-  const [showAppBlock, setShowAppBlock] = useState(false);
+  const [activePanel, setActivePanel] = useState(null); // 'chat' | 'file' | 'appblock' | null
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [gridCols, setGridCols] = useState(4);
@@ -75,7 +73,7 @@ export default function App() {
 
     api.onChatIncoming((msg) => {
       setChatMessages(prev => [...prev, { ...msg, direction: 'incoming' }]);
-      if (!showChat) addToast(`💬 ${msg.from}: ${msg.message}`, 'info');
+      if (activePanel !== 'chat') addToast(`💬 ${msg.from}: ${msg.message}`, 'info');
     });
 
     api.onFileAck(({ fileId, fileName, studentName }) => {
@@ -263,9 +261,9 @@ export default function App() {
           onLockAll={handleLockAll}
           onUnlockAll={handleUnlockAll}
           onBroadcastToggle={handleBroadcastToggle}
-          onShowChat={() => setShowChat(true)}
-          onShowFileTransfer={() => setShowFileTransfer(true)}
-          onShowAppBlock={() => setShowAppBlock(true)}
+          onShowChat={() => setActivePanel(activePanel === 'chat' ? null : 'chat')}
+          onShowFileTransfer={() => setActivePanel(activePanel === 'file' ? null : 'file')}
+          onShowAppBlock={() => setActivePanel(activePanel === 'appblock' ? null : 'appblock')}
           serverInfo={serverInfo}
         />
 
@@ -310,28 +308,28 @@ export default function App() {
 
         {/* ── Chat Panel ──────────────────────────────────────── */}
         <ChatPanel
-          show={showChat}
+          show={activePanel === 'chat'}
           students={students}
           messages={chatMessages}
           onSend={handleSendChat}
-          onClose={() => setShowChat(false)}
+          onClose={() => setActivePanel(null)}
         />
 
         {/* ── File Transfer Panel ────────────────────────────── */}
         <FileTransferPanel
-          show={showFileTransfer}
+          show={activePanel === 'file'}
           students={students}
           logs={fileTransferLogs}
           submissionLogs={submissionLogs}
           onSent={handleFileSent}
-          onClose={() => setShowFileTransfer(false)}
+          onClose={() => setActivePanel(null)}
         />
 
         {/* ── App Block Panel ────────────────────────── */}
         <AppBlockPanel
-          show={showAppBlock}
+          show={activePanel === 'appblock'}
           students={students}
-          onClose={() => setShowAppBlock(false)}
+          onClose={() => setActivePanel(null)}
           onViolation={(data) => addToast(`⚠️ ${data.studentName} vi phạm: ${data.keyword}`, 'error')}
         />
       </div>
@@ -343,7 +341,7 @@ export default function App() {
           onClose={() => setSelectedStudent(null)}
           onLock={handleLockStudent}
           onUnlock={handleUnlockStudent}
-          onChat={() => { setShowChat(true); setSelectedStudent(null); }}
+          onChat={() => { setActivePanel('chat'); setSelectedStudent(null); }}
         />
       )}
 
