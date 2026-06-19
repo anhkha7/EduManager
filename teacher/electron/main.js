@@ -5,6 +5,7 @@ const fs = require('fs');
 const http = require('http');
 const { Server } = require('socket.io');
 const os = require('os');
+const logger = require('./logger');
 const isDev = process.env.NODE_ENV === 'development';
 // ═══════════════════════════════════════════════════════════════
 //  EMBEDDED SOCKET.IO SERVER
@@ -38,6 +39,11 @@ io.on('connection', (socket) => {
     students.set(socket.id, info);
     socket.join('students');
     console.log(`[Server] Học sinh tham gia: ${info.name} (${info.ip})`);
+    
+    // Log event
+    const logEntry = logger.logEvent('connect', `Đã tham gia lớp học (IP: ${info.ip})`, info.name);
+    notifyRenderer('log:new', logEntry);
+
     // Thông báo cho teacher renderer
     notifyRenderer('student:joined', { id: socket.id, ...info });
   });
@@ -68,6 +74,10 @@ io.on('connection', (socket) => {
       const student = students.get(socket.id);
       students.delete(socket.id);
       console.log(`[Server] Học sinh offline: ${student.name} (${reason})`);
+      
+      const logEntry = logger.logEvent('disconnect', `Đã rời lớp học (Lý do: ${reason})`, student.name);
+      notifyRenderer('log:new', logEntry);
+
       notifyRenderer('student:left', { id: socket.id, name: student.name });
     }
   });
@@ -83,6 +93,12 @@ io.on('connection', (socket) => {
     const student = students.get(socket.id);
     const studentName = student?.name || data.studentName || 'Học sinh';
     console.log(`[Server] Vi phạm từ ${studentName}: ${data.keyword} (${data.mode})`);
+    
+    const action = data.mode === 'kill' ? 'Bị đóng ép buộc' : 'Bị cảnh báo';
+    const msg = data.isWeb ? `Truy cập web cấm: "${data.keyword}" (${action})` : `Mở ứng dụng cấm: "${data.keyword}" (${action})`;
+    const logEntry = logger.logEvent('violation', msg, studentName);
+    notifyRenderer('log:new', logEntry);
+
     notifyRenderer('app:violation', { ...data, studentName });
   });
 
@@ -212,6 +228,11 @@ ipcMain.handle('teacher:lock', (_, { studentId, message }) => {
     const s = students.get(studentId);
     if (s) s.locked = true;
   }
+  
+  const target = studentId === 'all' ? 'Tất cả học sinh' : (students.get(studentId)?.name || studentId);
+  const logEntry = logger.logEvent('command', `Khóa màn hình. Lời nhắn: "${msg}"`, target);
+  notifyRenderer('log:new', logEntry);
+
   // Cập nhật UI giáo viên
   notifyRenderer('students:state-changed', getStudentList());
 });
@@ -225,18 +246,31 @@ ipcMain.handle('teacher:unlock', (_, { studentId }) => {
     const s = students.get(studentId);
     if (s) { s.locked = false; s.broadcasting = false; }
   }
+
+  const target = studentId === 'all' ? 'Tất cả học sinh' : (students.get(studentId)?.name || studentId);
+  const logEntry = logger.logEvent('command', `Mở khóa màn hình`, target);
+  notifyRenderer('log:new', logEntry);
+
   notifyRenderer('students:state-changed', getStudentList());
 });
 // ── Bắt đầu broadcast ─────────────────────────────────────────
 ipcMain.handle('teacher:broadcast-start', () => {
   io.to('students').emit('broadcast:start');
   students.forEach(s => { s.broadcasting = true; s.locked = true; });
+  
+  const logEntry = logger.logEvent('command', `Bắt đầu chiếu màn hình giáo viên`, 'Tất cả học sinh');
+  notifyRenderer('log:new', logEntry);
+
   notifyRenderer('students:state-changed', getStudentList());
 });
 // ── Dừng broadcast ────────────────────────────────────────────
 ipcMain.handle('teacher:broadcast-stop', () => {
   io.to('students').emit('broadcast:stop');
   students.forEach(s => { s.broadcasting = false; s.locked = false; });
+  
+  const logEntry = logger.logEvent('command', `Dừng chiếu màn hình giáo viên`, 'Tất cả học sinh');
+  notifyRenderer('log:new', logEntry);
+
   notifyRenderer('students:state-changed', getStudentList());
 });
 // ── Kiểm soát ứng dụng ────────────────────────────────────────
@@ -244,9 +278,13 @@ ipcMain.handle('teacher:set-app-block', (_, { enabled, rules, mode }) => {
   if (enabled) {
     console.log(`[Teacher] Bật giám sát ứng dụng: ${(rules || []).length} từ khóa, chế độ: ${mode}`);
     io.to('students').emit('command:app-block', { enabled: true, rules: rules || [], mode: mode || 'kill' });
+    const logEntry = logger.logEvent('command', `Bật kiểm soát ứng dụng (${(rules || []).length} từ khóa, chế độ ${mode})`, 'Tất cả học sinh');
+    notifyRenderer('log:new', logEntry);
   } else {
     console.log('[Teacher] Tắt giám sát ứng dụng');
     io.to('students').emit('command:app-block', { enabled: false, rules: [], mode: 'kill' });
+    const logEntry = logger.logEvent('command', `Tắt kiểm soát ứng dụng`, 'Tất cả học sinh');
+    notifyRenderer('log:new', logEntry);
   }
   return { success: true };
 });
@@ -256,9 +294,13 @@ ipcMain.handle('teacher:set-web-block', (_, { enabled, domains }) => {
   if (enabled) {
     console.log(`[Teacher] Bật khóa Website: ${(domains || []).length} domain`);
     io.to('students').emit('command:web-block', { enabled: true, domains: domains || [] });
+    const logEntry = logger.logEvent('command', `Bật khóa Website (${(domains || []).length} tên miền)`, 'Tất cả học sinh');
+    notifyRenderer('log:new', logEntry);
   } else {
     console.log('[Teacher] Tắt khóa Website');
     io.to('students').emit('command:web-block', { enabled: false, domains: [] });
+    const logEntry = logger.logEvent('command', `Tắt khóa Website`, 'Tất cả học sinh');
+    notifyRenderer('log:new', logEntry);
   }
   return { success: true };
 });
@@ -372,10 +414,32 @@ ipcMain.handle('window:close', () => mainWindow?.close());
 function getStudentList() {
   return Array.from(students.entries()).map(([id, info]) => ({ id, ...info }));
 }
+
+// ── LOGS IPC ──────────────────────────────────────────────────
+ipcMain.handle('teacher:get-logs', () => logger.getLogs());
+ipcMain.handle('teacher:clear-logs', () => {
+  logger.clearLogs();
+  return true;
+});
+ipcMain.handle('teacher:export-logs', async () => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Xuất Nhật ký hoạt động',
+    defaultPath: 'edumanager-logs.csv',
+    filters: [{ name: 'CSV File', extensions: ['csv'] }]
+  });
+  if (!result.canceled && result.filePath) {
+    logger.exportLogsAsCSV(result.filePath);
+    return result.filePath;
+  }
+  return null;
+});
+
 // ═══════════════════════════════════════════════════════════════
 //  APP LIFECYCLE
 // ═══════════════════════════════════════════════════════════════
 app.whenReady().then(() => {
+  logger.initLogger();
+  logger.logEvent('system', 'Giáo viên mở ứng dụng và khởi tạo Server');
   createMainWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();

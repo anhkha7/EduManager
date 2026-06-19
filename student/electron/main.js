@@ -595,8 +595,8 @@ function startAppMonitor() {
         if (!lastViolations.has(violationKey)) {
           violations.push({ keyword: kw, process: matchedProcess, title: matchedTitle });
           lastViolations.add(violationKey);
-          // Reset sau 10 giây để có thể gửi lại nếu học sinh mở lại
-          setTimeout(() => lastViolations.delete(violationKey), 10000);
+          // Tăng thời gian chờ lên 30s để học sinh có đủ thời gian thao tác đóng ứng dụng (tránh bị khóa lại ngay lập tức)
+          setTimeout(() => lastViolations.delete(violationKey), 30000);
         }
       }
     }
@@ -616,7 +616,7 @@ function startAppMonitor() {
         if (!lastViolations.has(violationKey)) {
           violations.push({ keyword: kw, process: null, title: matchedTitle, isWeb: true });
           lastViolations.add(violationKey);
-          setTimeout(() => lastViolations.delete(violationKey), 10000);
+          setTimeout(() => lastViolations.delete(violationKey), 30000);
         }
       }
     }
@@ -663,9 +663,13 @@ function startAppMonitor() {
         }
       } else if (appBlockMode === 'warn' && !v.isWeb) {
         // Hiện cửa sổ cảnh báo overlay (không khóa hoàn toàn)
-        const warnMsg = `⛔ Ứng dụng bị cấm!\n"${v.keyword}" không được phép trong giờ học.\nVui lòng đóng ứng dụng đó.`;
+        const warnMsg = `⛔ Ứng dụng bị cấm!\n\nBạn đang mở "${v.keyword}".\nMàn hình sẽ được mở khóa sau 8 giây.\n\nVUI LÒNG ĐÓNG ỨNG DỤNG ĐÓ NGAY LẬP TỨC!`;
         createLockWindow(warnMsg);
-        setTimeout(() => { closeLockWindow(); }, 8000);
+        
+        // Tự đóng cảnh báo sau 8 giây
+        setTimeout(() => {
+          closeLockWindow();
+        }, 8000);
         notifySetup('app-violation-detected', { ...v, mode: 'warn' });
       }
     }

@@ -8,6 +8,7 @@ import ChatPanel from './components/ChatPanel';
 import FileTransferPanel from './components/FileTransferPanel';
 import AppBlockPanel from './components/AppBlockPanel';
 import WebBlockPanel from './components/WebBlockPanel';
+import LogsPanel from './components/LogsPanel';
 import StudentDetail from './components/StudentDetail';
 import Toast from './components/Toast';
 
@@ -266,6 +267,7 @@ export default function App() {
           onShowFileTransfer={() => setActivePanel(activePanel === 'file' ? null : 'file')}
           onShowAppBlock={() => setActivePanel(activePanel === 'appblock' ? null : 'appblock')}
           onShowWebBlock={() => setActivePanel(activePanel === 'webblock' ? null : 'webblock')}
+          onShowLogs={() => setActivePanel(activePanel === 'logs' ? null : 'logs')}
           serverInfo={serverInfo}
         />
 
@@ -339,6 +341,13 @@ export default function App() {
         <WebBlockPanel
           show={activePanel === 'webblock'}
           onClose={() => setActivePanel(null)}
+        />
+
+        {/* ── Logs Panel ─────────────────────────────── */}
+        <LogsPanel
+          show={activePanel === 'logs'}
+          onClose={() => setActivePanel(null)}
+          addToast={addToast}
         />
       </div>
 

@@ -52,6 +52,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendWebBlockRules: (domains) => ipcRenderer.invoke('teacher:set-web-block', { enabled: true, domains }),
   stopWebBlock: () => ipcRenderer.invoke('teacher:set-web-block', { enabled: false, domains: [] }),
 
+  // ── Logs ─────────────────────────────────────────────
+  getLogs: () => ipcRenderer.invoke('teacher:get-logs'),
+  clearLogs: () => ipcRenderer.invoke('teacher:clear-logs'),
+  exportLogs: () => ipcRenderer.invoke('teacher:export-logs'),
+  onNewLog: (cb) => ipcRenderer.on('log:new', (_, d) => cb(d)),
+
   // ── Window controls ───────────────────────────────────────────
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowMaximize: () => ipcRenderer.invoke('window:maximize'),
