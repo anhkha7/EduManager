@@ -885,12 +885,12 @@ body {
 }
 
 .modal-screenshot {
-  width: 100%;
+  max-width: 100%;
   max-height: calc(100vh - 160px);
-  object-fit: contain;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   display: block;
+  margin: 0 auto; /* Center it horizontally */
 }
 
 .modal-actions {

@@ -830,17 +830,6 @@ ipcMain.handle('send-chat', (_, { message }) => {
   }
 });
 
-// Window controls
-ipcMain.handle('window:minimize', () => {
-  if (setupWindow) setupWindow.minimize();
-});
-
-ipcMain.handle('window:close', () => {
-  if (setupWindow) {
-    setupWindow.hide();
-  }
-});
-
 // Gửi bài nộp từ học sinh tới giáo viên
 ipcMain.handle('student:submit-file', async () => {
   if (!socket || !isConnected) return { success: false, error: 'Chưa kết nối' };
