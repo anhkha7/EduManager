@@ -101,12 +101,12 @@ export default function LogsPanel({ show, onClose, addToast }) {
               background: 'var(--surface)', color: 'var(--text-primary)', fontSize: 12, outline: 'none'
             }}
           >
-            <option value="all">Tất cả sự kiện</option>
-            <option value="violation">⚠️ Vi phạm</option>
-            <option value="connect">🟢 Kết nối</option>
-            <option value="disconnect">🔴 Ngắt kết nối</option>
-            <option value="command">⚡ Lệnh giáo viên</option>
-            <option value="system">⚙️ Hệ thống</option>
+            <option value="all" style={{ background: '#0f172a', color: '#f8fafc' }}>Tất cả sự kiện</option>
+            <option value="violation" style={{ background: '#0f172a', color: '#f8fafc' }}>⚠️ Vi phạm</option>
+            <option value="connect" style={{ background: '#0f172a', color: '#f8fafc' }}>🟢 Kết nối</option>
+            <option value="disconnect" style={{ background: '#0f172a', color: '#f8fafc' }}>🔴 Ngắt kết nối</option>
+            <option value="command" style={{ background: '#0f172a', color: '#f8fafc' }}>⚡ Lệnh giáo viên</option>
+            <option value="system" style={{ background: '#0f172a', color: '#f8fafc' }}>⚙️ Hệ thống</option>
           </select>
 
           <input 

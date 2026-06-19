@@ -35,6 +35,7 @@ let lockWindow = null;       // Overlay khóa màn hình
 let broadcastWindow = null;  // Overlay broadcast
 let tray = null;
 let blockerProcess = null;   // Tiến trình chặn phím ngầm (C#)
+let inputSimulatorProcess = null; // Tiến trình giả lập chuột/phím (C#)
 
 let socket = null;
 let screenCaptureInterval = null;
@@ -80,6 +81,60 @@ function compileBlockKeys() {
     console.log('[Student] Biên dịch thành công BlockKeys.exe');
   } catch (err) {
     console.error('[Student] Lỗi biên dịch BlockKeys.cs:', err.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  INPUT SIMULATOR COMPILATION (C#)
+// ═══════════════════════════════════════════════════════════════
+function compileInputSimulator() {
+  if (process.platform !== 'win32') return;
+  const sourcePath = path.join(__dirname, 'InputSimulator.cs');
+  const exePath = path.join(__dirname, 'InputSimulator.exe');
+
+  if (!fs.existsSync(sourcePath)) return;
+  if (fs.existsSync(exePath)) return;
+
+  const cscPath = 'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe';
+  if (!fs.existsSync(cscPath)) return;
+
+  try {
+    execSync(`"${cscPath}" /target:exe /out:"${exePath}" "${sourcePath}"`, { stdio: 'ignore' });
+    console.log('[Student] Biên dịch thành công InputSimulator.exe');
+  } catch (err) {
+    console.error('[Student] Lỗi biên dịch InputSimulator.cs:', err.message);
+  }
+}
+
+function startInputSimulator() {
+  if (inputSimulatorProcess) return;
+  const exePath = path.join(__dirname, 'InputSimulator.exe');
+  if (fs.existsSync(exePath)) {
+    try {
+      inputSimulatorProcess = spawn(exePath);
+      console.log('[Student] Đã chạy InputSimulator.exe (PID:', inputSimulatorProcess.pid, ')');
+    } catch(e) {
+      console.error('[Student] Không thể chạy InputSimulator.exe:', e.message);
+    }
+  }
+}
+
+function stopInputSimulator() {
+  if (inputSimulatorProcess) {
+    try {
+      inputSimulatorProcess.kill();
+    } catch(e) {}
+    inputSimulatorProcess = null;
+  }
+}
+
+function sendInputEvent(commandStr) {
+  if (inputSimulatorProcess && inputSimulatorProcess.stdin && !inputSimulatorProcess.killed) {
+    try {
+      inputSimulatorProcess.stdin.write(commandStr + '\n');
+    } catch(e) {
+      // Bỏ qua lỗi broken pipe nếu tiến trình đã chết
+    }
   }
 }
 
@@ -424,6 +479,46 @@ function connectToServer(serverIp, serverPort) {
     closeLockWindow();
     closeBroadcastWindow();
     stopAppMonitor(); // Dừng giám sát khi giáo viên thoát
+    stopInputSimulator();
+    if (screenCaptureInterval) {
+      clearInterval(screenCaptureInterval);
+      screenCaptureInterval = null;
+      startScreenCapture(); // Reset FPS
+    }
+  });
+
+  // ── Nhận lệnh điều khiển (Remote Control) ──────────────────────────
+  socket.on('command:remote-control', ({ enabled }) => {
+    console.log(`[Student] Remote Control: ${enabled}`);
+    if (enabled) {
+      // Tăng FPS chụp màn hình lên ~5-8 FPS (150ms)
+      if (screenCaptureInterval) clearInterval(screenCaptureInterval);
+      screenCaptureInterval = setInterval(async () => {
+        if (!socket || !isConnected) return;
+        try {
+          const sources = await desktopCapturer.getSources({
+            types: ['screen'],
+            thumbnailSize: { width: 1280, height: 720 } // Ảnh lớn hơn chút cho Remote Control
+          });
+          if (sources.length > 0) {
+            socket.emit('student:thumbnail', { image: sources[0].thumbnail.toDataURL('image/jpeg', 0.6) });
+          }
+        } catch (err) {}
+      }, 150);
+      
+      startInputSimulator();
+    } else {
+      // Khôi phục chụp màn hình 3s
+      if (screenCaptureInterval) clearInterval(screenCaptureInterval);
+      screenCaptureInterval = null;
+      stopInputSimulator();
+      startScreenCapture();
+    }
+  });
+
+  socket.on('command:remote-input', (cmd) => {
+    // Truyền thẳng lệnh sang C# thông qua stdin
+    sendInputEvent(cmd);
   });
 
   // ── Nhận lệnh kiểm soát ứng dụng ──────────────────────────────
@@ -831,6 +926,7 @@ function createTray() {
 // ═══════════════════════════════════════════════════════════════
 app.whenReady().then(() => {
   compileBlockKeys();
+  compileInputSimulator();
   createSetupWindow();
   createTray();
 

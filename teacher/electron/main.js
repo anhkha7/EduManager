@@ -273,6 +273,21 @@ ipcMain.handle('teacher:broadcast-stop', () => {
 
   notifyRenderer('students:state-changed', getStudentList());
 });
+
+// ── Điều khiển từ xa (Remote Control) ──────────────────────────
+ipcMain.handle('teacher:remote-control-start', (_, { studentId, enabled }) => {
+  io.to(studentId).emit('command:remote-control', { enabled });
+  
+  const target = students.get(studentId)?.name || studentId;
+  const action = enabled ? 'Bắt đầu' : 'Kết thúc';
+  const logEntry = logger.logEvent('command', `${action} điều khiển từ xa`, target);
+  notifyRenderer('log:new', logEntry);
+});
+
+ipcMain.on('teacher:remote-control-input', (_, { studentId, cmd }) => {
+  io.to(studentId).emit('command:remote-input', cmd);
+});
+
 // ── Kiểm soát ứng dụng ────────────────────────────────────────
 ipcMain.handle('teacher:set-app-block', (_, { enabled, rules, mode }) => {
   if (enabled) {

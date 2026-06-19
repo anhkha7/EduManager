@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendStreamStart: () => ipcRenderer.send('teacher:stream-start'),
   sendStreamChunk: (chunk) => ipcRenderer.send('teacher:stream-chunk', chunk),
 
+  // ── Remote Control ───────────────────────────────────────────
+  remoteControlStart: (studentId, enabled) => ipcRenderer.invoke('teacher:remote-control-start', { studentId, enabled }),
+  sendRemoteInput: (studentId, cmd) => ipcRenderer.send('teacher:remote-control-input', { studentId, cmd }),
+
   sendChat: (studentId, message) => ipcRenderer.invoke('teacher:chat', { studentId, message }),
 
   getScreenSourceId: () => ipcRenderer.invoke('get-screen-source-id'),
