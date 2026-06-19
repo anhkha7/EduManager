@@ -66,7 +66,11 @@ function compileBlockKeys() {
   }
 
   if (fs.existsSync(exePath)) {
-    return;
+    const csStat = fs.statSync(sourcePath);
+    const exeStat = fs.statSync(exePath);
+    if (csStat.mtime <= exeStat.mtime) {
+      return;
+    }
   }
 
   console.log('[Student] Đang biên dịch BlockKeys.cs...');
@@ -93,7 +97,13 @@ function compileInputSimulator() {
   const exePath = path.join(__dirname, 'InputSimulator.exe');
 
   if (!fs.existsSync(sourcePath)) return;
-  if (fs.existsSync(exePath)) return;
+  if (fs.existsSync(exePath)) {
+    const csStat = fs.statSync(sourcePath);
+    const exeStat = fs.statSync(exePath);
+    if (csStat.mtime <= exeStat.mtime) {
+      return;
+    }
+  }
 
   const cscPath = 'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe';
   if (!fs.existsSync(cscPath)) return;
@@ -125,6 +135,33 @@ function stopInputSimulator() {
       inputSimulatorProcess.kill();
     } catch(e) {}
     inputSimulatorProcess = null;
+  }
+}
+
+function startBlockKeys() {
+  if (blockerProcess) return;
+  if (process.platform === 'win32') {
+    const exePath = path.join(__dirname, 'BlockKeys.exe');
+    if (fs.existsSync(exePath)) {
+      try {
+        blockerProcess = spawn(exePath);
+        console.log('[Student] Đã khởi chạy BlockKeys.exe (PID:', blockerProcess.pid, ')');
+      } catch (err) {
+        console.error('[Student] Không thể chạy BlockKeys.exe:', err.message);
+      }
+    }
+  }
+}
+
+function stopBlockKeys() {
+  if (blockerProcess) {
+    try {
+      blockerProcess.kill();
+      console.log('[Student] Đã dừng BlockKeys.exe');
+    } catch (err) {
+      console.error('[Student] Lỗi khi dừng BlockKeys.exe:', err.message);
+    }
+    blockerProcess = null;
   }
 }
 
@@ -217,17 +254,7 @@ function createLockWindow(message) {
   });
 
   // Chạy file chặn phím ngầm (C#) để chặn hoàn toàn Alt+Tab, Win, Ctrl+Esc, v.v.
-  if (process.platform === 'win32') {
-    const exePath = path.join(__dirname, 'BlockKeys.exe');
-    if (fs.existsSync(exePath)) {
-      try {
-        blockerProcess = spawn(exePath);
-        console.log('[Student] Đã khởi chạy BlockKeys.exe (PID:', blockerProcess.pid, ')');
-      } catch (err) {
-        console.error('[Student] Không thể chạy BlockKeys.exe:', err.message);
-      }
-    }
-  }
+  startBlockKeys();
 
   // Vô hiệu hóa các tổ hợp phím tắt hệ thống trong Electron (phòng hờ)
   try {
@@ -258,15 +285,7 @@ function closeLockWindow() {
   }
 
   // Tắt tiến trình chặn phím ngầm C#
-  if (blockerProcess) {
-    try {
-      blockerProcess.kill();
-      console.log('[Student] Đã dừng BlockKeys.exe');
-    } catch (err) {
-      console.error('[Student] Lỗi khi dừng BlockKeys.exe:', err.message);
-    }
-    blockerProcess = null;
-  }
+  stopBlockKeys();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -506,12 +525,29 @@ function connectToServer(serverIp, serverPort) {
         } catch (err) {}
       }, 150);
       
+      // Tạm dừng BlockKeys.exe và ẩn lockWindow nếu đang khóa
+      stopBlockKeys();
+      if (lockWindow && !lockWindow.isDestroyed()) {
+        lockWindow.hide();
+      }
+      // Thu nhỏ setupWindow của học sinh
+      if (setupWindow && !setupWindow.isDestroyed()) {
+        setupWindow.minimize();
+      }
+
       startInputSimulator();
     } else {
       // Khôi phục chụp màn hình 3s
       if (screenCaptureInterval) clearInterval(screenCaptureInterval);
       screenCaptureInterval = null;
       stopInputSimulator();
+
+      // Hiện lại lockWindow và khởi động lại BlockKeys.exe nếu đang khóa
+      if (lockWindow && !lockWindow.isDestroyed()) {
+        lockWindow.show();
+        startBlockKeys();
+      }
+
       startScreenCapture();
     }
   });
