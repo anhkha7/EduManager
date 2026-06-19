@@ -466,12 +466,20 @@ function connectToServer(serverIp, serverPort) {
           });
         }
       }
+      
+      if (webBlockRules.length > 0 || appBlockRules.length > 0) {
+        startAppMonitor();
+      }
     } else {
       hostsManager.unblockAllWebsites();
       webBlockRules = [];
       isWebMonitoring = false;
       notifySetup('web-block-status', { monitoring: false, rules: [] });
       console.log('[Student] Đã tắt khóa Web');
+      
+      if (appBlockRules.length === 0) {
+        stopAppMonitor();
+      }
     }
   });
 }
@@ -565,7 +573,7 @@ function startAppMonitor() {
   notifySetup('app-block-status', { monitoring: true, rules: appBlockRules, mode: appBlockMode });
 
   appMonitorInterval = setInterval(async () => {
-    if (appBlockRules.length === 0) return;
+    if (appBlockRules.length === 0 && webBlockRules.length === 0) return;
 
     const [processNames, windowTitles] = await Promise.all([
       getRunningProcessNames(),
@@ -574,6 +582,7 @@ function startAppMonitor() {
 
     const violations = [];
 
+    // --- 1. Kiểm tra luật khóa App ---
     for (const keyword of appBlockRules) {
       const kw = keyword.toLowerCase().trim();
       if (!kw) continue;
@@ -587,6 +596,26 @@ function startAppMonitor() {
           violations.push({ keyword: kw, process: matchedProcess, title: matchedTitle });
           lastViolations.add(violationKey);
           // Reset sau 10 giây để có thể gửi lại nếu học sinh mở lại
+          setTimeout(() => lastViolations.delete(violationKey), 10000);
+        }
+      }
+    }
+
+    // --- 2. Kiểm tra luật khóa Web (Window Title Check - Layer 2 fallback) ---
+    for (const domain of webBlockRules) {
+      const kw = domain.toLowerCase().trim();
+      if (!kw) continue;
+      
+      // Lấy tên miền cơ bản (bỏ http, www, .com) để bắt title tốt hơn
+      // VD: facebook.com -> facebook
+      const baseDomain = kw.replace(/^(https?:\/\/)?(www\.)?/, '').split('.')[0]; 
+      
+      const matchedTitle = windowTitles.find(t => t.includes(baseDomain));
+      if (matchedTitle) {
+        const violationKey = 'web-' + matchedTitle;
+        if (!lastViolations.has(violationKey)) {
+          violations.push({ keyword: kw, process: null, title: matchedTitle, isWeb: true });
+          lastViolations.add(violationKey);
           setTimeout(() => lastViolations.delete(violationKey), 10000);
         }
       }
@@ -608,7 +637,8 @@ function startAppMonitor() {
         });
       }
 
-      if (appBlockMode === 'kill') {
+      // Nếu là vi phạm Web Block, LUÔN LUÔN KILL cửa sổ trình duyệt (Layer 2)
+      if (v.isWeb || appBlockMode === 'kill') {
         const { exec } = require('child_process');
         if (v.process) {
           exec(`taskkill /F /IM "${v.process}.exe"`, { windowsHide: true }, (err) => {
@@ -619,14 +649,19 @@ function startAppMonitor() {
         if (v.title) {
           // Thoát dấu nháy đơn cho powershell
           const safeTitle = v.keyword.replace(/'/g, "''");
-          const psCmd = `powershell -NoProfile -NonInteractive -Command "Get-Process | Where-Object { $_.MainWindowTitle -like '*${safeTitle}*' } | Stop-Process -Force"`;
+          // Bắt theo title thay vì process
+          const safeBase = v.isWeb ? v.keyword.replace(/^(https?:\/\/)?(www\.)?/, '').split('.')[0].replace(/'/g, "''") : safeTitle;
+          const psCmd = `powershell -NoProfile -NonInteractive -Command "Get-Process | Where-Object { $_.MainWindowTitle -like '*${safeBase}*' } | Stop-Process -Force"`;
           exec(psCmd, { windowsHide: true }, (err) => {
             if (err) console.log(`[Student] powershell kill lỗi: ${err.message}`);
-            else console.log(`[Student] Đã đóng cửa sổ chứa từ khóa: ${v.keyword}`);
+            else console.log(`[Student] Đã đóng cửa sổ chứa từ khóa: ${safeBase}`);
           });
         }
-        notifySetup('app-violation-detected', { ...v, mode: 'kill' });
-      } else if (appBlockMode === 'warn') {
+        
+        if (!v.isWeb) {
+          notifySetup('app-violation-detected', { ...v, mode: 'kill' });
+        }
+      } else if (appBlockMode === 'warn' && !v.isWeb) {
         // Hiện cửa sổ cảnh báo overlay (không khóa hoàn toàn)
         const warnMsg = `⛔ Ứng dụng bị cấm!\n"${v.keyword}" không được phép trong giờ học.\nVui lòng đóng ứng dụng đó.`;
         createLockWindow(warnMsg);

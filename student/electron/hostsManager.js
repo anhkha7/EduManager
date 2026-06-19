@@ -24,9 +24,9 @@ function readHosts() {
  */
 function writeHosts(content) {
   try {
-    // Đảm bảo không bị Read-Only
+    // Đảm bảo không bị Read-Only bằng lệnh hệ thống của Windows
     try {
-      fs.chmodSync(HOSTS_PATH, 0o666);
+      execSync(`attrib -R "${HOSTS_PATH}"`, { windowsHide: true });
     } catch (e) {}
     
     fs.writeFileSync(HOSTS_PATH, content, 'utf8');
