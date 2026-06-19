@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 export default function StudentDetail({ student, onClose, onLock, onUnlock, onChat }) {
   const isLocked = student.locked;
   const [isRemoteControl, setIsRemoteControl] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const imgRef = useRef(null);
 
   const api = window.electronAPI;
@@ -67,8 +68,8 @@ export default function StudentDetail({ student, onClose, onLock, onUnlock, onCh
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
+    <div className="modal-backdrop" onClick={onClose} style={{ zIndex: isFullscreen ? 9999 : 200 }}>
+      <div className={`modal ${isFullscreen ? 'fullscreen' : ''}`} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <div>
             <div className="modal-title">🖥️ {student.name}</div>
@@ -78,7 +79,12 @@ export default function StudentDetail({ student, onClose, onLock, onUnlock, onCh
               {isRemoteControl && <span style={{ color: 'var(--warning)', marginLeft: 8 }}>⚡ Đang bị điều khiển</span>}
             </div>
           </div>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="modal-close" onClick={() => setIsFullscreen(!isFullscreen)}>
+              {isFullscreen ? '🗗' : '🗖'}
+            </button>
+            <button className="modal-close" onClick={onClose}>✕</button>
+          </div>
         </div>
 
         <div className="modal-body">
