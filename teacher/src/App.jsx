@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar';
 import StudentGrid from './components/StudentGrid';
 import ChatPanel from './components/ChatPanel';
 import FileTransferPanel from './components/FileTransferPanel';
+import AppBlockPanel from './components/AppBlockPanel';
 import StudentDetail from './components/StudentDetail';
 import Toast from './components/Toast';
 
@@ -15,6 +16,7 @@ export default function App() {
   const [isBroadcasting, setIsBroadcasting] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [showFileTransfer, setShowFileTransfer] = useState(false);
+  const [showAppBlock, setShowAppBlock] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [gridCols, setGridCols] = useState(4);
@@ -88,8 +90,14 @@ export default function App() {
       addToast(`📥 ${data.studentName} vừa nộp bài: ${data.fileName}`, 'success');
     });
 
+    // ── Lắng nghe vi phạm ứng dụng ────────────────────────────────
+    api.onAppViolation?.((data) => {
+      const action = data.mode === 'kill' ? '❌ Đóng ngưng' : '⚠️ Cảnh báo';
+      addToast(`${action}: ${data.studentName} dùng "${data.keyword}"`, 'error');
+    });
+
     return () => {
-      ['student:joined','student:left','student:thumbnail','students:state-changed','chat:incoming', 'file:progress', 'file:ack', 'file:submitted']
+      ['student:joined','student:left','student:thumbnail','students:state-changed','chat:incoming', 'file:progress', 'file:ack', 'file:submitted', 'app:violation']
         .forEach(ch => api.removeAllListeners(ch));
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -257,6 +265,7 @@ export default function App() {
           onBroadcastToggle={handleBroadcastToggle}
           onShowChat={() => setShowChat(true)}
           onShowFileTransfer={() => setShowFileTransfer(true)}
+          onShowAppBlock={() => setShowAppBlock(true)}
           serverInfo={serverInfo}
         />
 
@@ -316,6 +325,14 @@ export default function App() {
           submissionLogs={submissionLogs}
           onSent={handleFileSent}
           onClose={() => setShowFileTransfer(false)}
+        />
+
+        {/* ── App Block Panel ────────────────────────── */}
+        <AppBlockPanel
+          show={showAppBlock}
+          students={students}
+          onClose={() => setShowAppBlock(false)}
+          onViolation={(data) => addToast(`⚠️ ${data.studentName} vi phạm: ${data.keyword}`, 'error')}
         />
       </div>
 

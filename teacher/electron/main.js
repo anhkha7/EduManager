@@ -78,6 +78,14 @@ io.on('connection', (socket) => {
     notifyRenderer('file:ack', { fileId, fileName, studentName });
   });
 
+  // ── Nhận báo cáo vi phạm ứng dụng từ học sinh ─────────────────
+  socket.on('student:app-violation', (data) => {
+    const student = students.get(socket.id);
+    const studentName = student?.name || data.studentName || 'Học sinh';
+    console.log(`[Server] Vi phạm từ ${studentName}: ${data.keyword} (${data.mode})`);
+    notifyRenderer('app:violation', { ...data, studentName });
+  });
+
   // ── Nhận bài nộp từ học sinh ─────────────────────────────────
   const submitBuffers = new Map(); // fileId -> { fileName, studentName, chunks: [] }
   socket.on('student:submit-start', ({ fileId, fileName, totalChunks, fileSize, studentName }) => {
@@ -230,6 +238,17 @@ ipcMain.handle('teacher:broadcast-stop', () => {
   io.to('students').emit('broadcast:stop');
   students.forEach(s => { s.broadcasting = false; s.locked = false; });
   notifyRenderer('students:state-changed', getStudentList());
+});
+// ── Kiểm soát ứng dụng ────────────────────────────────────────
+ipcMain.handle('teacher:set-app-block', (_, { enabled, rules, mode }) => {
+  if (enabled) {
+    console.log(`[Teacher] Bật giám sát ứng dụng: ${(rules || []).length} từ khóa, chế độ: ${mode}`);
+    io.to('students').emit('command:app-block', { enabled: true, rules: rules || [], mode: mode || 'kill' });
+  } else {
+    console.log('[Teacher] Tắt giám sát ứng dụng');
+    io.to('students').emit('command:app-block', { enabled: false, rules: [], mode: 'kill' });
+  }
+  return { success: true };
 });
 // ── Video Stream (Teacher -> Student) ─────────────────────────
 ipcMain.on('teacher:stream-start', () => {

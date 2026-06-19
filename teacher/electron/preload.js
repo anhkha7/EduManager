@@ -43,6 +43,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openSubmissionFolder: () => ipcRenderer.invoke('teacher:open-submission-folder'),
   onFileSubmitted: (cb) => ipcRenderer.on('file:submitted', (_, d) => cb(d)),
 
+  // ── App Block ────────────────────────────────────────
+  sendAppBlockRules: (rules, mode) => ipcRenderer.invoke('teacher:set-app-block', { enabled: true, rules, mode }),
+  stopAppBlock: () => ipcRenderer.invoke('teacher:set-app-block', { enabled: false, rules: [], mode: 'kill' }),
+  onAppViolation: (cb) => ipcRenderer.on('app:violation', (_, d) => cb(d)),
+
   // ── Window controls ───────────────────────────────────────────
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowMaximize: () => ipcRenderer.invoke('window:maximize'),

@@ -13,6 +13,8 @@ export default function SetupPage() {
   const [incomingFile, setIncomingFile] = useState(null);
   const [submitStatus, setSubmitStatus] = useState('idle'); // idle | submitting | done | error
   const [submitMsg, setSubmitMsg] = useState('');
+  const [monitorStatus, setMonitorStatus] = useState({ monitoring: false, rules: [], mode: 'kill' });
+  const [violations, setViolations] = useState([]); // lịch sử vi phạm
 
   const api = window.electronAPI;
 
@@ -58,12 +60,21 @@ export default function SetupPage() {
       setSubmitMsg(`✅ Giáo viên đã lưu: ${fileName}`);
     });
 
+    // Lắng nghe trạng thái giám sát ứng dụng
+    api.getMonitorStatus?.().then(s => { if (s) setMonitorStatus(s); });
+    api.onAppBlockStatus?.((data) => setMonitorStatus(data));
+    api.onAppViolationDetected?.((v) => {
+      setViolations(prev => [{ ...v, time: Date.now() }, ...prev].slice(0, 10));
+    });
+
     return () => {
       api.removeAllListeners('connection-status');
       api.removeAllListeners('chat-received');
       api.removeAllListeners('file-receiving');
       api.removeAllListeners('file-received');
       api.removeAllListeners('submit:ack');
+      api.removeAllListeners('app-block-status');
+      api.removeAllListeners('app-violation-detected');
     };
   }, []);
 
@@ -145,6 +156,26 @@ export default function SetupPage() {
           <div className="status-dot" />
           {statusLabels[status]}
         </div>
+
+        {/* Monitor Badge */}
+        {monitorStatus.monitoring && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 12px', borderRadius: 20,
+            background: 'rgba(251,191,36,0.12)',
+            border: '1px solid rgba(251,191,36,0.35)',
+            fontSize: 11, color: '#fbbf24', fontWeight: 600,
+            marginTop: -4
+          }}>
+            <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#fbbf24', animation: 'pulse 1.5s infinite' }} />
+            &#128737; Giám sát app: {monitorStatus.mode === 'kill' ? 'Đóng ngăy' : 'Cảnh báo'}
+            {monitorStatus.rules.length > 0 && (
+              <span style={{ color: 'rgba(251,191,36,0.7)', fontWeight: 400 }}>
+                &nbsp;· {monitorStatus.rules.length} từ khóa
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Form */}
         <div className="setup-form">
@@ -306,6 +337,33 @@ export default function SetupPage() {
               </div>
             )}
           </>
+        )}
+
+        {/* Danh sách vi phạm */}
+        {violations.length > 0 && (
+          <div className="messages-section" style={{ marginTop: 8 }}>
+            <div className="messages-title" style={{ color: '#fbbf24' }}>&#9888; Vi phạm đã phát hiện</div>
+            {violations.map((v, i) => (
+              <div key={i} className="message-item" style={{
+                borderLeft: '3px solid #fbbf24',
+                background: 'rgba(251,191,36,0.06)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="message-from" style={{ color: '#fbbf24' }}>
+                    {v.mode === 'kill' ? '❌ Đã đóng' : '⚠️ Cảnh báo'}: {v.keyword}
+                  </span>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                    {new Date(v.time).toLocaleTimeString('vi-VN')}
+                  </span>
+                </div>
+                {v.process && (
+                  <div className="message-text" style={{ fontSize: 11 }}>
+                    Process: {v.process}.exe
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>
