@@ -12,13 +12,71 @@ const isDev = process.env.NODE_ENV === 'development';
 //  Chạy trực tiếp trong main process của teacher app
 // ═══════════════════════════════════════════════════════════════
 const SERVER_PORT = 3722; // Port đặc trưng cho EduManager
-const httpServer = http.createServer();
+const express = require('express');
+const expressApp = express();
+const httpServer = http.createServer(expressApp);
 const io = new Server(httpServer, {
   cors: { origin: '*', methods: ['GET', 'POST'] },
   maxHttpBufferSize: 50e6, // 50MB (hỗ trợ gửi file)
   pingTimeout: 15000,
   pingInterval: 5000
 });
+
+// Map để cache các file chia sẻ cho học sinh tải về: fileId -> { filePath, fileName }
+const sharedFiles = new Map();
+
+// Tích hợp route tải file
+expressApp.get('/download/:fileId', (req, res) => {
+  const fileInfo = sharedFiles.get(req.params.fileId);
+  if (fileInfo && fs.existsSync(fileInfo.filePath)) {
+    res.download(fileInfo.filePath, fileInfo.fileName);
+  } else {
+    res.status(404).send('File not found');
+  }
+});
+
+// Tích hợp route thu bài nộp từ học sinh
+expressApp.post('/upload', (req, res) => {
+  const fileName = decodeURIComponent(req.headers['file-name'] || '');
+  const studentName = decodeURIComponent(req.headers['student-name'] || 'HocSinh');
+  const fileId = req.headers['file-id'] || `${Date.now()}`;
+
+  if (!fileName) {
+    return res.status(400).send('Missing file-name header');
+  }
+
+  const studentDir = path.join(submissionSaveDir, studentName);
+  if (!fs.existsSync(studentDir)) {
+    fs.mkdirSync(studentDir, { recursive: true });
+  }
+
+  const savePath = path.join(studentDir, fileName);
+  const writeStream = fs.createWriteStream(savePath);
+
+  req.pipe(writeStream);
+
+  writeStream.on('finish', () => {
+    console.log(`[HTTP Server] Đã nhận file bài nộp từ ${studentName}: ${savePath}`);
+    
+    // Gửi thông báo đến UI Giáo viên thông qua IPC
+    notifyRenderer('file:submitted', {
+      fileId,
+      fileName,
+      studentName,
+      savePath,
+      fileSize: fs.existsSync(savePath) ? fs.statSync(savePath).size : 0,
+      time: Date.now()
+    });
+
+    res.send({ success: true });
+  });
+
+  writeStream.on('error', (err) => {
+    console.error('[HTTP Server] Lỗi lưu file upload:', err.message);
+    res.status(500).send(err.message);
+  });
+});
+
 // Danh sách học sinh đang kết nối: socketId -> StudentInfo
 const students = new Map();
 // Thư mục mặc định để thu bài nộp từ học sinh
@@ -88,6 +146,13 @@ io.on('connection', (socket) => {
     notifyRenderer('file:ack', { fileId, fileName, studentName });
   });
 
+  // Nhận báo cáo tiến trình download từ học sinh
+  socket.on('student:file-progress', ({ fileId, fileName, progress }) => {
+    const student = students.get(socket.id);
+    const studentName = student?.name || 'Học sinh';
+    notifyRenderer('file:progress', { fileId, fileName, progress, studentName });
+  });
+
   // ── Nhận báo cáo vi phạm ứng dụng từ học sinh ─────────────────
   socket.on('student:app-violation', (data) => {
     const student = students.get(socket.id);
@@ -138,9 +203,31 @@ io.on('connection', (socket) => {
     }
   });
 });
+// Khởi động UDP Broadcast cho tính năng tự động tìm kiếm server (Auto-discovery)
+let udpBroadcastInterval = null;
+function startUdpBroadcast() {
+  const dgram = require('dgram');
+  const server = dgram.createSocket('udp4');
+  server.bind(() => {
+    server.setBroadcast(true);
+    udpBroadcastInterval = setInterval(() => {
+      try {
+        const ip = getLanIP();
+        const message = Buffer.from(`EduManager-Server:${ip}:${SERVER_PORT}`);
+        server.send(message, 0, message.length, 3723, '255.255.255.255', (err) => {
+          if (err) console.error('[UDP Broadcast] Lỗi gửi:', err.message);
+        });
+      } catch (err) {
+        console.error('[UDP Broadcast] Lỗi:', err.message);
+      }
+    }, 5000);
+  });
+}
+
 // Khởi động server
 httpServer.listen(SERVER_PORT, '0.0.0.0', () => {
   console.log(`[Server] EduManager Server đang chạy trên cổng ${SERVER_PORT}`);
+  startUdpBroadcast();
 });
 httpServer.on('error', (err) => {
   console.error('[Server] Lỗi server:', err.message);
@@ -370,33 +457,30 @@ ipcMain.handle('teacher:open-file-dialog', async () => {
   return { filePath, fileName, fileSize: stat.size };
 });
 
-// Gửi file tới học sinh theo cơ chế chunk (có destFolder)
-const CHUNK_SIZE = 256 * 1024; // 256 KB mỗi chunk
+// Gửi file tới học sinh bằng cách phát lệnh HTTP Download
 ipcMain.handle('teacher:send-file', async (_, { studentId, filePath, fileName, destFolder }) => {
   try {
-    const buffer = fs.readFileSync(filePath);
-    const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE);
     const fileId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    sharedFiles.set(fileId, { filePath, fileName });
+    const stat = fs.statSync(filePath);
+    
+    // Lấy IP LAN của giáo viên và tạo link download
+    const downloadUrl = `http://${getLanIP()}:${SERVER_PORT}/download/${fileId}`;
     const target = studentId === 'all' ? io.to('students') : io.to(studentId);
 
-    // Thông báo bắt đầu (kèm destFolder)
-    target.emit('file:start', { fileId, fileName, totalChunks, fileSize: buffer.length, destFolder: destFolder || 'EduManager' });
+    console.log(`[Teacher] Phát lệnh tải file: ${fileName} (${stat.size} bytes). Download URL: ${downloadUrl}`);
+    
+    target.emit('file:download-command', {
+      fileId,
+      fileName,
+      fileSize: stat.size,
+      downloadUrl,
+      destFolder: destFolder || 'EduManager'
+    });
 
-    // Gửi từng chunk
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * CHUNK_SIZE;
-      const chunk = buffer.slice(start, start + CHUNK_SIZE);
-      target.emit('file:chunk', { fileId, chunkIndex: i, totalChunks, chunk: chunk.toString('base64') });
-      const progress = Math.round(((i + 1) / totalChunks) * 100);
-      notifyRenderer('file:progress', { fileId, fileName, progress });
-      await new Promise(resolve => setImmediate(resolve));
-    }
-
-    target.emit('file:done', { fileId, fileName });
-    notifyRenderer('file:progress', { fileId, fileName, progress: 100, done: true });
     return { success: true };
   } catch (err) {
-    console.error('[Teacher] Lỗi gửi file:', err.message);
+    console.error('[Teacher] Lỗi chuẩn bị gửi file:', err.message);
     return { success: false, error: err.message };
   }
 });
@@ -467,5 +551,8 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   // Thông báo học sinh giáo viên đã thoát
   io.to('students').emit('teacher:disconnect');
+  if (udpBroadcastInterval) {
+    clearInterval(udpBroadcastInterval);
+  }
   httpServer.close();
 });

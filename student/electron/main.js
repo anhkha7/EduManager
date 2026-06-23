@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, shell, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, shell, globalShortcut, desktopCapturer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -38,7 +38,6 @@ let blockerProcess = null;   // Tiến trình chặn phím ngầm (C#)
 let inputSimulatorProcess = null; // Tiến trình giả lập chuột/phím (C#)
 
 let socket = null;
-let screenCaptureInterval = null;
 let isConnected = false;
 
 // APP MONITOR STATE
@@ -116,6 +115,36 @@ function compileInputSimulator() {
   }
 }
 
+function compileProcessMonitor() {
+  if (process.platform !== 'win32') return;
+  const sourcePath = path.join(__dirname, 'ProcessMonitor.cs');
+  const exePath = path.join(__dirname, 'ProcessMonitor.exe');
+
+  if (!fs.existsSync(sourcePath)) {
+    console.error('[Student] Không tìm thấy ProcessMonitor.cs');
+    return;
+  }
+
+  if (fs.existsSync(exePath)) {
+    const csStat = fs.statSync(sourcePath);
+    const exeStat = fs.statSync(exePath);
+    if (csStat.mtime <= exeStat.mtime) {
+      return;
+    }
+  }
+
+  console.log('[Student] Đang biên dịch ProcessMonitor.cs...');
+  const cscPath = 'C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\csc.exe';
+  if (!fs.existsSync(cscPath)) return;
+
+  try {
+    execSync(`"${cscPath}" /target:exe /out:"${exePath}" "${sourcePath}"`, { stdio: 'ignore' });
+    console.log('[Student] Biên dịch thành công ProcessMonitor.exe');
+  } catch (err) {
+    console.error('[Student] Lỗi biên dịch ProcessMonitor.cs:', err.message);
+  }
+}
+
 function startInputSimulator() {
   if (inputSimulatorProcess) return;
   const exePath = path.join(__dirname, 'InputSimulator.exe');
@@ -188,7 +217,8 @@ function createSetupWindow() {
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: false
     }
   });
 
@@ -235,6 +265,16 @@ function createLockWindow(message) {
   lockWindow.setAlwaysOnTop(true, 'screen-saver', 1);
   lockWindow.setVisibleOnAllWorkspaces(true);
 
+  // Vô hiệu hóa Task Manager qua Registry (HKCU)
+  if (process.platform === 'win32') {
+    try {
+      execSync('reg add "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v DisableTaskMgr /t REG_DWORD /d 1 /f', { windowsHide: true });
+      console.log('[Student] Đã vô hiệu hóa Task Manager qua Registry');
+    } catch (err) {
+      console.error('[Student] Lỗi vô hiệu hóa Task Manager:', err.message);
+    }
+  }
+
   if (isDev) {
     lockWindow.loadURL(`http://localhost:5174/#lock?msg=${encodeURIComponent(message)}`);
   } else {
@@ -279,6 +319,16 @@ function closeLockWindow() {
     lockWindow._allowClose = true;
     lockWindow.close();
     lockWindow = null;
+
+    // Kích hoạt lại Task Manager
+    if (process.platform === 'win32') {
+      try {
+        execSync('reg delete "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\System" /v DisableTaskMgr /f', { windowsHide: true });
+        console.log('[Student] Đã kích hoạt lại Task Manager');
+      } catch (err) {
+        console.error('[Student] Lỗi kích hoạt lại Task Manager:', err.message);
+      }
+    }
 
     // Gỡ các phím tắt đã bị khóa
     globalShortcut.unregisterAll();
@@ -339,6 +389,55 @@ function closeBroadcastWindow() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+//  UDP DISCOVERY (Học sinh tự động tìm IP Giáo viên)
+// ═══════════════════════════════════════════════════════════════
+let udpDiscoverySocket = null;
+function startUdpDiscovery() {
+  if (process.platform !== 'win32') return;
+  if (udpDiscoverySocket) return;
+
+  const dgram = require('dgram');
+  udpDiscoverySocket = dgram.createSocket('udp4');
+
+  udpDiscoverySocket.on('message', (msg, rinfo) => {
+    if (isConnected || socket) return;
+
+    const messageStr = msg.toString().trim();
+    if (messageStr.startsWith('EduManager-Server:')) {
+      const parts = messageStr.split(':');
+      if (parts.length === 3) {
+        const ip = parts[1];
+        const port = parseInt(parts[2], 10);
+        console.log(`[UDP Discovery] Đã tìm thấy server Giáo viên tự động: ${ip}:${port}`);
+        connectToServer(ip, port);
+      }
+    }
+  });
+
+  udpDiscoverySocket.on('error', (err) => {
+    console.error('[UDP Discovery] Lỗi socket:', err.message);
+  });
+
+  try {
+    udpDiscoverySocket.bind(3723, '0.0.0.0', () => {
+      console.log('[UDP Discovery] Đang lắng nghe tín hiệu tự động tìm kiếm server (Port 3723)...');
+    });
+  } catch (err) {
+    console.error('[UDP Discovery] Không thể bind cổng:', err.message);
+  }
+}
+
+function stopUdpDiscovery() {
+  if (udpDiscoverySocket) {
+    try {
+      udpDiscoverySocket.close();
+    } catch (e) {}
+    udpDiscoverySocket = null;
+    console.log('[UDP Discovery] Đã dừng lắng nghe tự động tìm kiếm.');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 //  SOCKET.IO CLIENT — Kết nối tới server của giáo viên
 // ═══════════════════════════════════════════════════════════════
 function connectToServer(serverIp, serverPort) {
@@ -361,6 +460,7 @@ function connectToServer(serverIp, serverPort) {
   socket.on('connect', () => {
     isConnected = true;
     console.log('[Student] Đã kết nối tới server!');
+    stopUdpDiscovery(); // Dừng UDP scan khi kết nối thành công
 
     // Gửi thông tin học sinh
     socket.emit('student:join', {
@@ -380,12 +480,14 @@ function connectToServer(serverIp, serverPort) {
     console.log('[Student] Mất kết nối:', reason);
     stopScreenCapture();
     if (setupWindow) setupWindow.webContents.send('connection-status', { connected: false, reason });
+    startUdpDiscovery(); // Bật lại UDP scan khi mất kết nối
   });
 
   socket.on('connect_error', (err) => {
     isConnected = false;
     console.log('[Student] Lỗi kết nối:', err.message);
     if (setupWindow) setupWindow.webContents.send('connection-status', { connected: false, error: err.message });
+    startUdpDiscovery(); // Bật lại UDP scan khi lỗi kết nối
   });
 
   // ── Nhận lệnh từ giáo viên ─────────────────────────────────────
@@ -435,54 +537,81 @@ function connectToServer(serverIp, serverPort) {
     }
   });
 
-  // ── File Transfer (Nhận file từ giáo viên) ─────────────────────
-  const fileBuffers = new Map(); // fileId -> { fileName, chunks: [], totalChunks }
-
-  socket.on('file:start', ({ fileId, fileName, totalChunks, fileSize, destFolder }) => {
-    console.log(`[Student] Bắt đầu nhận file: ${fileName} (${totalChunks} chunks, destFolder=${destFolder})`);
-    fileBuffers.set(fileId, { fileName, totalChunks, chunks: [], destFolder: destFolder || 'EduManager' });
+  // ── File Transfer (Nhận file từ giáo viên qua HTTP Download) ─────────────────────
+  socket.on('file:download-command', async ({ fileId, fileName, fileSize, downloadUrl, destFolder }) => {
+    console.log(`[Student] Nhận lệnh tải file: ${fileName} (${fileSize} bytes) từ URL: ${downloadUrl}`);
     if (setupWindow && !setupWindow.isDestroyed()) {
       setupWindow.webContents.send('file-receiving', { fileName, fileSize });
     }
-  });
-
-  socket.on('file:chunk', ({ fileId, chunkIndex, chunk }) => {
-    const entry = fileBuffers.get(fileId);
-    if (!entry) return;
-    entry.chunks[chunkIndex] = Buffer.from(chunk, 'base64');
-  });
-
-  socket.on('file:done', async ({ fileId, fileName }) => {
-    const entry = fileBuffers.get(fileId);
-    if (!entry) return;
-    fileBuffers.delete(fileId);
 
     try {
-      const completeBuffer = Buffer.concat(entry.chunks.filter(Boolean));
-
-      // Giải quyết thư mục lưu dựa theo destFolder
+      // Xác định thư mục lưu
       const home = os.homedir();
       let saveDir;
-      switch (entry.destFolder) {
+      switch (destFolder) {
         case 'Desktop':   saveDir = path.join(home, 'Desktop'); break;
         case 'Documents': saveDir = path.join(home, 'Documents'); break;
         case 'Downloads': saveDir = path.join(home, 'Downloads'); break;
         case 'EduManager': saveDir = path.join(home, 'Downloads', 'EduManager'); break;
-        default: saveDir = path.join(home, 'Downloads', 'EduManager', entry.destFolder); break;
+        default: saveDir = path.join(home, 'Downloads', 'EduManager', destFolder); break;
       }
-
       await fs.promises.mkdir(saveDir, { recursive: true });
       const savePath = path.join(saveDir, fileName);
-      await fs.promises.writeFile(savePath, completeBuffer);
-      console.log(`[Student] Đã lưu file: ${savePath}`);
 
+      const response = await fetch(downloadUrl);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      
+      const fileStream = fs.createWriteStream(savePath);
+
+      // Node.js fetch trả về ReadableStream. Ta kiểm tra và xử lý stream phù hợp
+      if (response.body.pipe) {
+        let receivedLength = 0;
+        let lastReportTime = Date.now();
+        response.body.on('data', (chunk) => {
+          receivedLength += chunk.length;
+          const now = Date.now();
+          if (now - lastReportTime > 200 || receivedLength === fileSize) {
+            const progress = Math.round((receivedLength / fileSize) * 100);
+            socket.emit('student:file-progress', { fileId, fileName, progress });
+            lastReportTime = now;
+          }
+        });
+        response.body.pipe(fileStream);
+        await new Promise((resolve, reject) => {
+          fileStream.on('finish', resolve);
+          fileStream.on('error', reject);
+        });
+      } else {
+        const reader = response.body.getReader();
+        let receivedLength = 0;
+        let lastReportTime = Date.now();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          fileStream.write(Buffer.from(value));
+          receivedLength += value.length;
+          const now = Date.now();
+          if (now - lastReportTime > 200 || receivedLength === fileSize) {
+            const progress = Math.round((receivedLength / fileSize) * 100);
+            socket.emit('student:file-progress', { fileId, fileName, progress });
+            lastReportTime = now;
+          }
+        }
+        fileStream.end();
+      }
+
+      console.log(`[Student] Đã lưu file HTTP thành công: ${savePath}`);
       const studentName = store.get('studentName', os.hostname());
       if (setupWindow && !setupWindow.isDestroyed()) {
-        setupWindow.webContents.send('file-received', { fileName, savePath, fileSize: completeBuffer.length, destFolder: entry.destFolder });
+        setupWindow.webContents.send('file-received', { fileName, savePath, fileSize, destFolder });
       }
       socket.emit('file:received-ack', { fileId, fileName, studentName });
+
     } catch (err) {
-      console.error('[Student] Lỗi lưu file:', err.message);
+      console.error('[Student] Lỗi tải file qua HTTP:', err.message);
+      if (setupWindow && !setupWindow.isDestroyed()) {
+        setupWindow.webContents.send('file-error', { fileName, error: err.message });
+      }
     }
   });
 
@@ -499,11 +628,7 @@ function connectToServer(serverIp, serverPort) {
     closeBroadcastWindow();
     stopAppMonitor(); // Dừng giám sát khi giáo viên thoát
     stopInputSimulator();
-    if (screenCaptureInterval) {
-      clearInterval(screenCaptureInterval);
-      screenCaptureInterval = null;
-      startScreenCapture(); // Reset FPS
-    }
+    stopScreenCapture();
   });
 
   // ── Nhận lệnh điều khiển (Remote Control) ──────────────────────────
@@ -511,19 +636,7 @@ function connectToServer(serverIp, serverPort) {
     console.log(`[Student] Remote Control: ${enabled}`);
     if (enabled) {
       // Tăng FPS chụp màn hình lên ~5-8 FPS (150ms)
-      if (screenCaptureInterval) clearInterval(screenCaptureInterval);
-      screenCaptureInterval = setInterval(async () => {
-        if (!socket || !isConnected) return;
-        try {
-          const sources = await desktopCapturer.getSources({
-            types: ['screen'],
-            thumbnailSize: { width: 1280, height: 720 } // Ảnh lớn hơn chút cho Remote Control
-          });
-          if (sources.length > 0) {
-            socket.emit('student:thumbnail', { image: sources[0].thumbnail.toDataURL('image/jpeg', 0.6) });
-          }
-        } catch (err) {}
-      }, 150);
+      startScreenCapture(150);
       
       // Tạm dừng BlockKeys.exe và ẩn lockWindow nếu đang khóa
       stopBlockKeys();
@@ -538,8 +651,7 @@ function connectToServer(serverIp, serverPort) {
       startInputSimulator();
     } else {
       // Khôi phục chụp màn hình 3s
-      if (screenCaptureInterval) clearInterval(screenCaptureInterval);
-      screenCaptureInterval = null;
+      startScreenCapture(3000);
       stopInputSimulator();
 
       // Hiện lại lockWindow và khởi động lại BlockKeys.exe nếu đang khóa
@@ -547,8 +659,6 @@ function connectToServer(serverIp, serverPort) {
         lockWindow.show();
         startBlockKeys();
       }
-
-      startScreenCapture();
     }
   });
 
@@ -618,33 +728,26 @@ function connectToServer(serverIp, serverPort) {
 // ═══════════════════════════════════════════════════════════════
 //  SCREEN CAPTURE — Chụp và gửi thumbnail mỗi 3 giây
 // ═══════════════════════════════════════════════════════════════
-const { desktopCapturer } = require('electron');
-
-function startScreenCapture() {
-  if (screenCaptureInterval) return;
-
-  screenCaptureInterval = setInterval(async () => {
-    if (!socket || !isConnected) return;
-    try {
-      const sources = await desktopCapturer.getSources({
-        types: ['screen'],
-        thumbnailSize: { width: 480, height: 300 }
-      });
-
-      if (sources.length > 0) {
-        const image = sources[0].thumbnail.toDataURL('image/jpeg');
-        socket.emit('student:thumbnail', { image });
+async function startScreenCapture(interval = 3000) {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: { width: 1, height: 1 }
+    });
+    if (sources.length > 0) {
+      const sourceId = sources[0].id;
+      if (setupWindow && !setupWindow.isDestroyed()) {
+        setupWindow.webContents.send('capture:start', { sourceId, interval });
       }
-    } catch (err) {
-      // Bỏ qua lỗi chụp màn hình
     }
-  }, 3000);
+  } catch (err) {
+    console.error('[Student] Lỗi lấy nguồn màn hình:', err.message);
+  }
 }
 
 function stopScreenCapture() {
-  if (screenCaptureInterval) {
-    clearInterval(screenCaptureInterval);
-    screenCaptureInterval = null;
+  if (setupWindow && !setupWindow.isDestroyed()) {
+    setupWindow.webContents.send('capture:stop');
   }
 }
 
@@ -656,40 +759,32 @@ function stopScreenCapture() {
  * Lấy danh sách TÊN tiến trình đang chạy bằng lệnh tasklist (Windows)
  * @returns {Promise<string[]>} mảng tên process (chữ thường, không có .exe)
  */
-function getRunningProcessNames() {
-  return new Promise((resolve) => {
-    if (process.platform !== 'win32') return resolve([]);
-    const { exec } = require('child_process');
-    exec('tasklist /FO CSV /NH', { windowsHide: true }, (err, stdout) => {
-      if (err) return resolve([]);
-      // Mỗi dòng: "process.exe","PID","Session","SessionNum","MemUsage"
-      const names = stdout.split('\n')
-        .map(line => {
-          const parts = line.split(',');
-          if (parts.length < 1) return null;
-          return parts[0].replace(/"/g, '').toLowerCase().replace(/\.exe$/, '');
-        })
-        .filter(Boolean);
-      resolve(names);
-    });
-  });
-}
-
 /**
- * Lấy danh sách TIÊU ĐỀ cửa sổ đang mở bằng PowerShell
- * @returns {Promise<string[]>} mảng title cửa sổ (chữ thường)
+ * Lấy danh sách tiến trình và tiêu đề cửa sổ bằng C# ProcessMonitor.exe
  */
-function getWindowTitles() {
+function getNativeProcessesAndTitles() {
   return new Promise((resolve) => {
     if (process.platform !== 'win32') return resolve([]);
+    const exePath = path.join(__dirname, 'ProcessMonitor.exe');
+    if (!fs.existsSync(exePath)) return resolve([]);
+
     const { exec } = require('child_process');
-    const cmd = `powershell -NoProfile -NonInteractive -Command "Get-Process | Where-Object {$_.MainWindowTitle -ne ''} | Select-Object -ExpandProperty MainWindowTitle"`;
-    exec(cmd, { windowsHide: true, timeout: 3000 }, (err, stdout) => {
+    exec(`"${exePath}"`, { windowsHide: true, timeout: 3000 }, (err, stdout) => {
       if (err) return resolve([]);
-      const titles = stdout.split('\n')
-        .map(t => t.trim().toLowerCase())
+      const lines = stdout.split('\n')
+        .map(line => line.trim())
         .filter(Boolean);
-      resolve(titles);
+
+      const list = [];
+      for (const line of lines) {
+        const parts = line.split('|');
+        if (parts.length >= 2) {
+          const processName = parts[0];
+          const windowTitle = parts.slice(1).join('|');
+          list.push({ process: processName, title: windowTitle });
+        }
+      }
+      resolve(list);
     });
   });
 }
@@ -706,10 +801,9 @@ function startAppMonitor() {
   appMonitorInterval = setInterval(async () => {
     if (appBlockRules.length === 0 && webBlockRules.length === 0) return;
 
-    const [processNames, windowTitles] = await Promise.all([
-      getRunningProcessNames(),
-      getWindowTitles()
-    ]);
+    const list = await getNativeProcessesAndTitles();
+    const processNames = list.map(item => item.process);
+    const windowTitles = list.map(item => item.title);
 
     const violations = [];
 
@@ -866,7 +960,14 @@ ipcMain.handle('send-chat', (_, { message }) => {
   }
 });
 
-// Gửi bài nộp từ học sinh tới giáo viên
+// Nhận frame màn hình từ renderer và gửi lên server
+ipcMain.handle('capture:frame', (_, { image }) => {
+  if (socket && isConnected) {
+    socket.emit('student:thumbnail', { image });
+  }
+});
+
+// Gửi bài nộp từ học sinh tới giáo viên qua HTTP POST stream
 ipcMain.handle('student:submit-file', async () => {
   if (!socket || !isConnected) return { success: false, error: 'Chưa kết nối' };
 
@@ -883,21 +984,30 @@ ipcMain.handle('student:submit-file', async () => {
   const studentName = store.get('studentName', os.hostname());
 
   try {
-    const buffer = fs.readFileSync(filePath);
-    const CHUNK_SIZE = 256 * 1024;
-    const totalChunks = Math.ceil(buffer.length / CHUNK_SIZE);
+    const serverIp = store.get('serverIp', '127.0.0.1');
+    const serverPort = store.get('serverPort', 3722);
+    const uploadUrl = `http://${serverIp}:${serverPort}/upload`;
     const fileId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    socket.emit('student:submit-start', { fileId, fileName, totalChunks, fileSize: buffer.length, studentName });
+    console.log(`[Student] Tải file lên giáo viên qua HTTP POST: ${fileName}`);
 
-    for (let i = 0; i < totalChunks; i++) {
-      const start = i * CHUNK_SIZE;
-      const chunk = buffer.slice(start, start + CHUNK_SIZE);
-      socket.emit('student:submit-chunk', { fileId, chunkIndex: i, chunk: chunk.toString('base64') });
-      await new Promise(resolve => setImmediate(resolve));
+    // Sử dụng fetch API để gửi dữ liệu file nhị phân làm stream
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'file-name': encodeURIComponent(fileName),
+        'student-name': encodeURIComponent(studentName),
+        'file-id': fileId
+      },
+      duplex: 'half',
+      body: fs.createReadStream(filePath)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upload failed! HTTP Status: ${response.status}`);
     }
 
-    socket.emit('student:submit-done', { fileId });
     return { success: true, fileName };
   } catch (err) {
     console.error('[Student] Lỗi nộp bài:', err.message);
@@ -963,10 +1073,14 @@ function createTray() {
 app.whenReady().then(() => {
   compileBlockKeys();
   compileInputSimulator();
+  compileProcessMonitor();
   createSetupWindow();
   createTray();
 
-  // Tự động kết nối nếu đã có cài đặt
+  // Khởi động tự động quét IP giáo viên qua UDP
+  startUdpDiscovery();
+
+  // Tự động kết nối nếu đã có cài đặt sẵn từ trước
   const savedIp = store.get('serverIp', '');
   const savedPort = store.get('serverPort', 3722);
   if (savedIp) {
@@ -979,6 +1093,7 @@ app.on('window-all-closed', (e) => {
 });
 
 app.on('before-quit', () => {
+  stopUdpDiscovery(); // Dừng UDP socket
   if (socket) socket.disconnect();
   stopScreenCapture();
   stopAppMonitor();

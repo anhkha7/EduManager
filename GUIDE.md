@@ -1,85 +1,244 @@
-📖 Cẩm nang Phát triển EduManager (Developer Guide)
-Tài liệu này tổng hợp toàn bộ kiến trúc, cơ chế hoạt động và lộ trình phát triển của EduManager nhằm giúp các lập trình viên mới (hoặc chính bạn trong tương lai) có thể nhanh chóng nắm bắt dự án và tiếp tục phát triển các tính năng mới.
+# 📖 Cẩm nang Phát triển EduManager (Developer Guide)
 
-1. Tổng quan Dự án
-EduManager là phần mềm quản lý phòng máy tính nội bộ (mạng LAN) dành cho trường học, đóng vai trò thay thế cho các phần mềm thương mại đắt đỏ như NetSupport School.
+Chào mừng bạn đến với tài liệu hướng dẫn kỹ thuật dành cho dự án **EduManager** — giải pháp quản lý phòng máy tính mạng LAN tối ưu, chuyên nghiệp và mã nguồn mở. Tài liệu này cung cấp cái nhìn toàn diện về kiến trúc hệ thống, các cơ chế hoạt động cốt lõi, cách thức tích hợp mã nguồn C# để can thiệp hệ thống Windows, cũng như lộ trình phát triển kế tiếp.
 
-Dự án được chia làm 2 ứng dụng độc lập:
+---
 
-Teacher App (Giáo viên): Đóng vai trò là Máy Chủ (Server) và bảng điều khiển (Dashboard).
-Student App (Học sinh): Đóng vai trò là Máy Khách (Client), chạy ẩn dưới nền để gửi dữ liệu và nhận lệnh từ giáo viên.
-2. Kiến trúc Kỹ thuật (Tech Stack)
-Dự án là một Monorepo chứa 2 ứng dụng, sử dụng chung các công nghệ:
+## 1. Tổng quan & Kiến trúc Hệ thống
 
-Framework: Electron.js (để tạo app Desktop) + React.js (để làm giao diện).
-Trình đóng gói: Vite (giúp dev server chạy siêu nhanh).
-Giao tiếp Real-time: Socket.IO (truyền nhận lệnh khóa màn hình, chat, trạng thái).
-Xử lý hình ảnh: API desktopCapturer của Electron (để chụp màn hình học sinh và giáo viên).
-3. Cấu trúc Thư mục
-text
+EduManager là phần mềm giám sát và điều phối phòng máy học sinh trong mạng nội bộ (mạng LAN), đóng vai trò thay thế cho các phần mềm thương mại đắt đỏ như NetSupport School hay NetOp School. 
 
+Dự án được xây dựng theo mô hình **Monorepo** chia làm 2 ứng dụng chính:
+1. **Teacher App (Giáo viên):** Đóng vai trò là **Server** (máy chủ) điều phối lớp học và giao diện quản trị (Dashboard).
+2. **Student App (Học sinh):** Đóng vai trò là **Client** (máy khách), chạy ẩn dưới nền (System Tray), liên tục cập nhật trạng thái và nhận lệnh thực thi từ máy Giáo viên.
+
+### Sơ đồ luồng dữ liệu tổng quan
+```mermaid
+graph TD
+    subgraph Máy Giáo Viên (Teacher)
+        T_UI[React JS Dashboard] <-->|IPC Bridge| T_Electron[Electron Main Process]
+        T_Electron <-->|Tích hợp Socket.IO Server| T_Socket[Socket.IO Server - Port 3722]
+    end
+
+    subgraph Máy Học Sinh (Student)
+        S_Socket[Socket.IO Client] <-->|Nhận Lệnh / Gửi Ảnh / Gửi Bài| T_Socket
+        S_Electron[Electron Main Process] <-->|Quản lý Kết Nối & Đóng Gói| S_Socket
+        S_Electron <-->|IPC Bridge| S_UI[React UI Setup/Lock/Broadcast]
+        
+        %% Tích hợp Windows API nâng cao
+        S_Electron <-->|stdin/stdout| BlockKeys[BlockKeys.exe C# Helper]
+        S_Electron <-->|stdin/stdout| InputSim[InputSimulator.exe C# Helper]
+        S_Electron -->|Ghi đè| HostsFile[C:\\Windows\\System32\\drivers\\etc\\hosts]
+    end
+    
+    style T_UI fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#fff
+    style T_Electron fill:#0f172a,stroke:#3b82f6,stroke-width:2px,color:#fff
+    style S_UI fill:#1e293b,stroke:#10b981,stroke-width:2px,color:#fff
+    style S_Electron fill:#0f172a,stroke:#10b981,stroke-width:2px,color:#fff
+    style BlockKeys fill:#312e81,stroke:#6366f1,stroke-width:1px,color:#fff
+    style InputSim fill:#312e81,stroke:#6366f1,stroke-width:1px,color:#fff
+    style HostsFile fill:#78350f,stroke:#f59e0b,stroke-width:1px,color:#fff
+```
+
+---
+
+## 2. Công nghệ Sử dụng (Tech Stack)
+
+*   **Framework Desktop:** [Electron.js](https://www.electronjs.org/) (phiên bản `^42.4.1`) quản lý vòng đời ứng dụng và gọi API hệ điều hành.
+*   **Giao diện người dùng:** [React.js](https://react.dev/) (phiên bản `^18.3.1`) kết hợp với CSS thuần (Vanilla CSS) tối ưu hiệu năng và tính thẩm mỹ cao (curated dark-mode, glassmorphism, responsive grid).
+*   **Trình đóng gói & Dev Server:** [Vite](https://vite.dev/) tăng tốc độ hot-reload khi lập trình.
+*   **Truyền thông điệp Real-time:** [Socket.IO](https://socket.io/) (phiên bản `^4.7.5`) truyền tín hiệu nhị phân, lệnh điều khiển, và tin nhắn văn bản qua TCP.
+*   **Xử lý Logic Hệ thống (Windows):** Hợp dịch các file **C# (.NET Framework 4.0)** để móc nối bàn phím/chuột (Low-level hooks) và mô phỏng sự kiện phần cứng (Win32 SendInput).
+
+---
+
+## 3. Cấu trúc Thư mục Dự án
+
+```text
 edumanager/
-├── teacher/                     # Ứng dụng của Giáo viên (App + Server)
-│   ├── electron/
-│   │   ├── main.js              # Khởi tạo cửa sổ, NHÚNG SERVER Socket.IO (Port 3722)
-│   │   └── preload.js           # Cầu nối (IPC bridge) giữa React và Electron
-│   ├── src/                     # Code giao diện React (App.jsx, các Components)
-│   └── package.json             # Chứa script build và dependencies
+├── README.md                      # Hướng dẫn cài đặt cơ bản và chạy ứng dụng
+├── GUIDE.md                       # Tài liệu hướng dẫn lập trình chi tiết này
 │
-└── student/                     # Ứng dụng của Học sinh (Client)
+├── teacher/                       # Dự án App Giáo viên (Server)
+│   ├── electron/
+│   │   ├── main.js                # Nhúng Socket.IO Server, quản lý IPC và cửa sổ
+│   │   ├── logger.js              # Ghi log hoạt động hệ thống ra file CSV/LOG
+│   │   └── preload.js             # Cầu nối bảo mật (IPC bridge) cho React UI
+│   ├── src/
+│   │   ├── components/            # Các Panel chức năng chính (WebBlock, AppBlock, FileTransfer, Chat...)
+│   │   ├── App.jsx                # Layout chính, nhận kết nối socket và cập nhật Grid
+│   │   └── main.jsx               # Điểm khởi đầu của React UI
+│   ├── package.json               # Cấu hình builder và các script của Teacher
+│   └── vite.config.js             # Cấu hình Vite cho Teacher
+│
+└── student/                       # Dự án App Học sinh (Client)
     ├── electron/
-    │   ├── main.js              # Khởi tạo cửa sổ ẩn, kết nối tới Server, chụp màn hình gửi đi
-    │   └── preload.js           # Cầu nối (IPC bridge)
+    │   ├── main.js                # Socket Client, quản lý vòng lặp giám sát, trigger C# helper
+    │   ├── preload.js             # Cầu nối IPC cho màn hình Setup/Lock/Broadcast
+    │   ├── hostsManager.js        # Ghi/xóa IP chuyển hướng trong C:\Windows\System32\drivers\etc\hosts
+    │   ├── BlockKeys.cs           # Mã nguồn C# chặn tổ hợp phím hệ thống (Alt+Tab, Win...)
+    │   ├── BlockKeys.exe          # File thực thi đã biên dịch để chặn phím
+    │   ├── InputSimulator.cs      # Mã nguồn C# chặn phần cứng thật và nhận lệnh giả lập
+    │   └── InputSimulator.exe     # File thực thi đã biên dịch để giả lập đầu vào
     ├── src/
-    │   ├── pages/               # Giao diện Setup, LockScreen, BroadcastScreen
-    │   └── App.jsx              # Router điều hướng màn hình
-    └── package.json             # Chứa script build
-4. Cơ chế Hoạt động Cốt lõi (Core Mechanisms)
-Để làm tiếp các tính năng mới, bạn cần hiểu rõ dòng chảy dữ liệu giữa Teacher và Student:
+    │   ├── pages/
+    │   │   ├── SetupPage.jsx      # Điền thông tin kết nối và quản lý File/Chat
+    │   │   ├── LockPage.jsx       # Giao diện khóa màn hình toàn cảnh
+    │   │   └── BroadcastPage.jsx  # Xem màn hình giáo viên thời gian thực
+    │   └── App.jsx                # Định tuyến (React Router) các trạng thái màn hình
+    └── package.json               # Cấu hình builder và các script của Student
+```
 
-A. Kết nối mạng
-Khi Teacher App bật lên, file teacher/electron/main.js sẽ tự động mở một Socket.IO Server ở port 3722. (Lưu ý: Đã có logic tự động lọc bỏ IP ảo của VMware/VirtualBox để lấy đúng IP LAN thật).
-Khi Student App bật lên, nhập IP và ấn kết nối, student/electron/main.js sẽ dùng Socket.IO Client kết nối đến ws://<IP-Teacher>:3722.
-B. Chụp màn hình học sinh (Thumbnail)
-Cứ mỗi 3 giây, Student App sẽ gọi desktopCapturer.getSources() chụp màn hình.
-Ép ảnh thành dạng chuỗi Base64 (JPEG thu nhỏ) và socket.emit('student:thumbnail') gửi cho Server.
-Teacher Server nhận được, bắn qua IPC xuống cho Teacher React UI để render thành các thẻ học sinh.
-C. Khóa màn hình (Lock Screen)
-Giáo viên bấm nút "Khóa". React gửi IPC lên main.js của Teacher.
-Teacher gửi tín hiệu command:lock qua Socket.IO tới học sinh.
-Học sinh nhận tín hiệu, tự động tạo ra một cửa sổ (BrowserWindow) phủ kín toàn màn hình (Fullscreen, AlwaysOnTop) chặn mọi thao tác chuột/phím của học sinh.
-D. Chiếu màn hình Giáo viên (Broadcast)
-(Hiện đang dùng cơ chế mô phỏng bằng Socket)
+---
 
-Teacher chụp màn hình liên tục và gửi luồng dữ liệu hình ảnh (Base64) qua Socket.
-Student nhận được tín hiệu, tự động mở 1 màn hình Fullscreen (giống màn hình khóa) nhưng bên trong chứa thẻ <img> liên tục cập nhật ảnh của giáo viên để tạo thành Video.
-5. Các Tính năng Hiện có (Đã hoàn thành)
-Quét IP vật lý thật của máy giáo viên để làm Server.
-Học sinh nhập IP tham gia lớp. Giám sát trạng thái Online/Offline.
-Xem màn hình thu nhỏ (Grid view) của toàn bộ lớp học.
-Khóa toàn bộ / Mở khóa toàn bộ.
-Khóa / Mở khóa từng cá nhân (Click vào học sinh).
-Broadcast màn hình giáo viên xuống máy học sinh (~8 FPS).
-Chat riêng lẻ hoặc Chat toàn lớp.
-Phím tắt giải cứu (Ctrl+Shift+U) cho học sinh khi test code trên cùng 1 máy tính.
-Cấu hình Build ra file .exe bằng electron-builder.
-6. Hướng Phát triển Tiếp theo (Roadmap Phase 2)
-Dưới đây là các tính năng ưu tiên để phát triển tiếp, kèm theo gợi ý cách thực hiện:
+## 4. Các Cơ chế Hoạt động & Dòng chảy Dữ liệu (Core Mechanisms)
 
-Tính năng 1: Kiểm soát Website (Khóa Web)
-Cách làm: Ở student/electron/main.js, bạn cần tìm cách theo dõi lịch sử duyệt web hoặc lấy tên cửa sổ đang Active. Nếu phát hiện tiêu đề cửa sổ chứa chữ cấm (ví dụ: "Facebook", "Liên Minh"), dùng code Node.js ép đóng chương trình đó (taskkill trên Windows) hoặc hiển thị ngay cái màn hình Khóa (LockWindow).
-Tính năng 2: Chuyển Gửi File (File Transfer)
-Cách làm:
-Gửi cho học sinh: Teacher mở hộp thoại chọn file -> Chia file thành các mảnh nhỏ (Buffer) -> Gửi qua Socket.IO -> Student nhận, ghép lại và lưu ra ổ đĩa (dùng module fs của Node).
-Thu bài: Tương tự chiều ngược lại.
-Tính năng 3: Điều khiển máy học sinh (Remote Control)
-Cách làm:
-Hình ảnh: Khi giáo viên bấm "Điều khiển", Student tăng tốc độ gửi ảnh chụp màn hình từ 3s/lần lên khoảng 15-20 FPS.
-Thao tác: Bắt sự kiện Click chuột, Gõ phím trên màn hình của Teacher -> Gửi sự kiện đó qua Socket -> Student dùng thư viện Node.js bên thứ ba (như robotjs hoặc nut.js) để mô phỏng lại cú click chuột/gõ phím y hệt trên máy học sinh.
-Tính năng 4: Nâng cấp luồng Video bằng WebRTC (Tối ưu hóa)
-Hiện tại Broadcast màn hình giáo viên đang đẩy ảnh tĩnh qua Socket.IO (chỉ đạt ~8fps, hơi giật).
-Cách làm: Trong tương lai, nên chuyển sang dùng công nghệ WebRTC. Server đóng vai trò là Signaling Server. Giáo viên lấy luồng navigator.mediaDevices.getUserMedia, tạo luồng P2P Video Stream xuống cho học sinh. Tốc độ sẽ mượt mà như xem YouTube (60 FPS) và có cả âm thanh.
-7. Các Lưu ý Quan trọng khi Code
-Đừng bao giờ nhúng code Node.js trực tiếp vào React (Ví dụ lệnh fs.readFile không chạy trong React). Luôn dùng cơ chế IPC (Inter-Process Communication) qua file preload.js để nhờ Electron Main Process xử lý.
-Luôn cẩn thận với bộ nhớ rò rỉ (Memory Leak) khi thao tác với hình ảnh liên tục. Nhớ dọn dẹp các biến chứa chuỗi Base64 hình ảnh.
-Khi thêm các tính năng can thiệp sâu vào hệ điều hành (như chặn phím Windows, tắt ứng dụng), có thể Windows Defender sẽ hiểu lầm là Virus. Đôi khi cần Code Signing (mua chứng chỉ) khi xuất bản thương mại.
+### A. Quét Card Mạng LAN và Khởi chạy Server (Teacher)
+Khi ứng dụng Giáo viên khởi chạy:
+1. `teacher/electron/main.js` quét các card mạng qua API `os.networkInterfaces()`.
+2. Hệ thống lọc bỏ các IP ảo thuộc về phần mềm ảo hóa (như VMware, VirtualBox, WSL, Hamachi...) để lấy đúng IP card mạng LAN vật lý thật nhằm hiển thị cho giáo viên.
+3. Socket.IO Server tự động lắng nghe trên cổng mặc định **`3722`** của tất cả các card mạng (`0.0.0.0`).
+4. Khi học sinh điền IP của giáo viên và bấm kết nối từ Student App, socket client sẽ liên kết tới địa chỉ `ws://<IP-Teacher>:3722`.
+
+---
+
+### B. Cơ chế Khóa Màn hình Cứng & Chặn Phím Hệ thống
+Tính năng khóa màn hình được triển khai chặt chẽ để học sinh không thể thoát hoặc vô hiệu hóa:
+
+1. **Khởi tạo cửa sổ chặn:** Khi nhận lệnh `command:lock`, Electron sẽ khởi tạo một cửa sổ `lockWindow` phủ toàn màn hình (`fullscreen: true`, `kiosk: true`, `alwaysOnTop: true`, `skipTaskbar: true`). Cửa sổ này liên tục ép focus (`blur` -> `focus()`) ngăn chặn các hành động nhấp chuột ra ngoài.
+2. **Can thiệp tổ hợp phím ở cấp OS:** Các phím tắt như `Alt+Tab`, `Win`, `Ctrl+Esc`, `Alt+F4` không thể chặn triệt để bằng Electron API. Do đó, EduManager triển khai giải pháp:
+    *   Tự động phát hiện và biên dịch mã nguồn `BlockKeys.cs` thành `BlockKeys.exe` tại thư mục khởi chạy bằng trình biên dịch sẵn có của Windows (`C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe`).
+    *   Khi bật chế độ khóa, Electron dùng lệnh `spawn()` để khởi động `BlockKeys.exe`.
+    *   `BlockKeys` cài đặt một móc phím bàn phím cấp thấp (`WH_KEYBOARD_LL` Win32 Hook) để lọc và tiêu hủy (trả về `1`) các sự kiện bấm phím hệ thống trước khi hệ điều hành xử lý.
+3. **Mở khóa:** Khi nhận tín hiệu `command:unlock`, Electron gửi lệnh tắt tiến trình `BlockKeys.exe` (`kill()`), đồng thời cho phép đóng cửa sổ `lockWindow`.
+
+> [!WARNING]
+> Phím tắt khẩn cấp: Trong quá trình chạy thử nghiệm trên cùng một máy (vừa mở app Teacher vừa mở app Student), bạn có thể sử dụng tổ hợp phím tắt giải cứu `Ctrl + Shift + U` trên màn hình setup của học sinh để ép đóng màn hình khóa.
+
+---
+
+### C. Theo dõi và Truyền Ảnh Màn hình Thu nhỏ (Thumbnail Grid)
+Nhằm tối ưu hóa hiệu năng, giảm tải cho CPU (Main Process) và giảm tối đa băng thông truyền tải mạng LAN, hệ thống sử dụng cơ chế stream phần cứng thông qua renderer process:
+1. **Lấy nguồn màn hình (Main Process):** Khi kết nối thành công, Electron Main Process gọi API `desktopCapturer.getSources()` **một lần duy nhất** để lấy ID của màn hình chính, sau đó gửi sự kiện `'capture:start'` qua IPC kèm theo `sourceId` và chu kỳ `interval` sang Renderer Process.
+2. **Khởi tạo Stream phần cứng (Renderer Process):**
+    *   SetupPage (React) nhận sự kiện và sử dụng `navigator.mediaDevices.getUserMedia` để mở luồng ghi hình màn hình (được tăng tốc phần cứng bởi Chromium).
+    *   Tắt tính năng tối ưu hóa Chromium bằng cấu hình `backgroundThrottling: false` để đảm bảo stream hoạt động liên tục ngay cả khi ứng dụng thu nhỏ xuống khay hệ thống (System Tray).
+3. **Nén ảnh và Gửi dữ liệu:**
+    *   Luồng ghi hình được gắn vào một thẻ `<video>` ẩn và vẽ sang một `<canvas>` ẩn theo chu kỳ (3 giây/lần ở chế độ thường).
+    *   Mỗi khung hình được chuyển đổi thành chuỗi base64 JPEG với chất lượng nén **50%** (`canvas.toDataURL('image/jpeg', 0.5)`). Điều này giúp giảm dung lượng ảnh xuống chỉ còn **20KB - 40KB** (giảm tới **95%** dung lượng so với ảnh PNG lossless mặc định của Electron).
+    *   Renderer gửi ảnh nén qua IPC ngược lại Main Process để gửi qua Socket.IO tới giáo viên.
+
+---
+
+### D. Kiểm soát Ứng dụng (App Blocking)
+Hệ thống cho phép giáo viên theo dõi và kiểm soát các phần mềm chạy trên máy học sinh:
+1. Giáo viên gửi danh sách từ khóa ứng dụng cần chặn kèm chế độ (`mode: 'kill'` hoặc `mode: 'warn'`).
+2. Cứ mỗi **2 giây**, Student App chạy hai tác vụ kiểm tra ngầm song song:
+    *   **Tên tiến trình (Process Name):** Thực thi lệnh `tasklist /FO CSV /NH` để lấy danh sách tiến trình đang chạy và so khớp từ khóa.
+    *   **Tiêu đề cửa sổ (Window Title):** Chạy PowerShell ngầm `Get-Process | Where-Object {$_.MainWindowTitle -ne ''}` để tìm các cửa sổ chứa từ khóa cấm.
+3. Nếu phát hiện vi phạm:
+    *   Học sinh gửi socket event `student:app-violation` về máy giáo viên để hiển thị lên bảng nhật ký (Logs).
+    *   Nếu là chế độ **`kill`**: Hệ thống gọi lệnh `taskkill /F /IM "<process>.exe"` hoặc PowerShell `Stop-Process` để đóng ngay lập tức phần mềm vi phạm.
+    *   Nếu là chế độ **`warn`**: Hệ thống mở một màn hình overlay cảnh báo học sinh trong **8 giây** yêu cầu tự tắt phần mềm, sau đó tự đóng cảnh báo.
+
+---
+
+### E. Kiểm soát Website (Web Blocking)
+Để chặn các trình duyệt web truy cập vào các trang mạng xã hội, game online hoặc trang web không lành mạnh, EduManager kết hợp 2 lớp phòng vệ (Two-Layer Blocking):
+
+```mermaid
+sequenceDiagram
+    participant T as Máy Giáo viên
+    participant S_Main as Student Main (Electron)
+    participant Hosts as File Hosts (Windows)
+    participant PS as PowerShell Monitor
+    participant Browser as Trình duyệt Học sinh
+
+    T->>S_Main: Yêu cầu khóa Web [domains]
+    
+    rect rgb(20, 30, 50)
+        note right of S_Main: LỚP 1: DNS Sinkhole (hosts)
+        S_Main->>Hosts: Ghi đè "127.0.0.1 domain.com"
+        S_Main->>S_Main: Thực thi 'ipconfig /flushdns'
+        Browser->>Hosts: Truy vấn IP của domain.com
+        Hosts-->>Browser: Trả về 127.0.0.1 (Không tải được trang)
+    end
+
+    rect rgb(30, 20, 20)
+        note right of S_Main: LỚP 2: Giám sát Tiêu đề Cửa sổ (PowerShell)
+        S_Main->>PS: Get-Process | WindowTitle
+        PS-->>S_Main: Danh sách tiêu đề (vd: "Facebook - Google Chrome")
+        S_Main->>S_Main: Phát hiện chứa từ khóa cấm
+        S_Main->>PS: Stop-Process (Đóng trình duyệt)
+    end
+```
+
+1.  **Lớp 1 (DNS Sinkhole - hosts):** File `student/electron/hostsManager.js` thực thi lệnh mở khóa thuộc tính Read-Only của file cấu hình hệ thống `C:\Windows\System32\drivers\etc\hosts`. Sau đó ghi danh sách tên miền cần chặn trỏ về địa chỉ Loopback `127.0.0.1` và thực hiện xóa bộ nhớ đệm DNS bằng `ipconfig /flushdns`.
+2.  **Lớp 2 (Window Title Check - PowerShell Fallback):** Đối với các trang web sử dụng HTTPS hoặc DNS Cache cứng khó can thiệp bằng file hosts, vòng lặp giám sát của Student sẽ quét tiêu đề của tất cả trình duyệt đang mở (Chrome, Edge, Firefox...). Nếu tiêu đề trình duyệt chứa từ khóa của website bị cấm (ví dụ: `facebook`), tiến trình trình duyệt đó sẽ bị ép đóng ngay lập tức thông qua lệnh PowerShell.
+
+---
+
+### F. Truyền nhận File (File Transfer) & Thu Bài
+EduManager truyền tải dữ liệu trực tiếp thông qua luồng gói tin nhị phân cắt nhỏ (Chunk-based transfer) để tránh rò rỉ bộ nhớ RAM:
+
+| Chiều truyền tải | Quy trình hoạt động |
+| :--- | :--- |
+| **Giáo viên gửi tài liệu cho Học sinh** | 1. Giáo viên chọn file từ hộp thoại hệ thống.<br>2. File được chia thành các mảnh nhỏ kích thước **256KB** (Chunk) và mã hóa Base64.<br>3. Gửi tuần tự qua socket. Học sinh nhận ghép lại thành Buffer gốc.<br>4. Lưu trực tiếp vào thư mục chỉ định của học sinh (Desktop, Downloads, Documents...). |
+| **Thu bài thi / bài tập của Học sinh** | 1. Học sinh click "Nộp bài" trên giao diện Setup.<br>2. Chọn file bài tập và gửi dữ liệu dạng Chunk về Server.<br>3. Server tự động gom các mảnh ghép, tạo thư mục con theo tên máy học sinh và lưu trữ tập trung tại đường dẫn chỉ định: `Downloads/EduManager/Submissions/<StudentName>/`. |
+
+---
+
+### G. Điều khiển Máy tính Học sinh từ xa (Remote Control)
+Cơ chế điều khiển từ xa được thiết kế tối ưu hóa tốc độ và khóa hoàn toàn quyền can thiệp vật lý tại máy đích:
+
+1. **Bật Chế độ:** Khi giáo viên click "Điều khiển", Student App Main Process nhận lệnh và gửi sự kiện `'capture:start'` cập nhật chu kỳ `interval` mới là **150ms** (đạt khoảng 7 FPS) sang Renderer. Renderer tự động dừng stream cũ và khởi chạy lại luồng capture tốc độ cao mà không làm nghẽn Main Thread hay gây rò rỉ bộ nhớ.
+2. **Khóa phần cứng tại máy học sinh:** Student App khởi chạy tiến trình C# helper `InputSimulator.exe`. Tiến trình này đăng ký đồng thời móc bàn phím cấp thấp (`WH_KEYBOARD_LL`) và móc chuột cấp thấp (`WH_MOUSE_LL`). Mọi thao tác gõ phím hoặc di chuyển chuột vật lý của học sinh tại máy trạm sẽ bị chặn hoàn toàn (trả về `1` trong Callback).
+3. **Giả lập lệnh từ xa:** Giao diện điều khiển của Giáo viên bắt các sự kiện di chuột, click chuột và gõ phím của giáo viên, tính toán tọa độ tương đối (`px`, `py` từ `0.0` đến `1.0`) và gửi chuỗi định dạng sự kiện qua Socket (ví dụ: `M:0.25:0.5` cho di chuột, `C:left` cho click chuột, `KD:13` cho nhấn phím Enter).
+4. `InputSimulator.exe` nhận chuỗi lệnh này qua đường ống đầu vào tiêu chuẩn (`stdin`), giải mã và thực hiện giả lập chính xác vị trí và hành động lên Windows bằng các hàm API hệ thống Win32.
+
+---
+
+## 5. Hướng dẫn Lập trình & Quản lý Mã nguồn (Developer Setup)
+
+### Biên dịch và Khởi chạy Môi trường Phát triển (Local Dev)
+1. **Cài đặt dependencies:** Chạy lệnh cài đặt ở cả hai thư mục:
+    ```bash
+    cd teacher && npm install
+    cd ../student && npm install
+    ```
+2. **Chạy dev server:** Sử dụng script tích hợp chạy song song Vite Dev Server và Electron App:
+    ```bash
+    npm run dev
+    ```
+    *   *Teacher App:* Sẽ khởi chạy ở cổng React `5173`.
+    *   *Student App:* Sẽ khởi chạy ở cổng React `5174`.
+
+### Cơ chế tự động Biên dịch C# (Auto-compile Helper)
+Mỗi khi khởi động Student App trên hệ điều hành Windows, Electron Main Process sẽ kiểm tra sự tồn tại và ngày sửa đổi cuối cùng của `BlockKeys.cs` / `InputSimulator.cs` so với file `.exe` tương ứng. Nếu phát hiện mã nguồn C# mới hơn hoặc chưa có file `.exe`, Electron sẽ tự động gọi trình biên dịch mặc định của Windows (`csc.exe`) để biên dịch lại mã nguồn C# một cách đồng bộ.
+
+---
+
+## 6. Các Lưu ý Quan trọng khi Phát triển (Dev Guidelines)
+
+> [!IMPORTANT]
+> **1. Quy tắc IPC (Cầu nối Electron - React):**
+> Tuyệt đối không import các module Node.js (như `fs`, `path`, `child_process`, `os`) trực tiếp vào mã nguồn React. Luôn định nghĩa các hàm trung gian trong file `preload.js` sử dụng `contextBridge.exposeInMainWorld` để React giao tiếp an toàn với Main Process qua kênh truyền `ipcRenderer.invoke`.
+
+> [!TIP]
+> **2. Tối ưu hóa bộ nhớ:**
+> Hoạt động chụp ảnh màn hình gửi Base64 diễn ra liên tục. Luôn thực hiện dọn dẹp các biến đệm, tránh gán chuỗi Base64 dài vào các biến toàn cục không giải phóng để ngăn ngừa rò rỉ bộ nhớ (Memory Leak) làm treo đơ máy học sinh.
+
+> [!CAUTION]
+> **3. Quyền Quản trị (Administrator Access):**
+> Chức năng chỉnh sửa file `hosts` để chặn Website bắt buộc ứng dụng Học sinh phải được chạy dưới quyền quản trị viên (Run as Administrator). Nếu không có quyền này, hệ thống ghi đè file hosts sẽ thất bại, nhưng lớp phòng vệ thứ 2 (PowerShell window title monitor) vẫn sẽ hoạt động bình thường như một phương án dự phòng.
+
+---
+
+## 7. Hướng Phát triển Kế tiếp (Roadmap Phase 3)
+
+Để nâng cấp EduManager lên phiên bản thương mại hóa hoặc dự án tốt nghiệp xuất sắc, các hướng phát triển tiếp theo bao gồm:
+
+*   **Nâng cấp Luồng Truyền hình ảnh (WebRTC):** Thay thế việc truyền ảnh tĩnh Base64 qua Socket.IO (hiện tại) bằng giải pháp thiết lập luồng WebRTC P2P (máy Giáo viên là Host, các máy học sinh kết nối Peer). Việc này sẽ nâng tốc độ hiển thị hình ảnh từ 8 FPS lên 60 FPS mượt mà, hỗ trợ truyền cả âm thanh của giáo viên mà không làm tắc nghẽn băng thông Socket.
+*   **Chia Nhóm Học sinh (Group Management):** Cho phép giáo viên chia lớp học thành nhiều nhóm nhỏ, chỉ định trưởng nhóm có quyền quản trị hoặc chiếu màn hình riêng trong nhóm.
+*   **Kiểm tra Trắc nghiệm Trực tuyến (Online Quiz):** Tích hợp công cụ tạo câu hỏi trắc nghiệm nhanh, giáo viên đẩy bài xuống, học sinh làm bài trực tiếp trên giao diện và tự động chấm điểm xếp hạng.
+*   **Tối ưu Đóng gói và Ký số (Code Signing):** Cấu hình chữ ký điện tử cho file `.exe` xuất bản để tránh việc Windows Defender nhận diện lầm các file C# hook bàn phím (`BlockKeys.exe`) là mã độc.

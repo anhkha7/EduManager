@@ -78,6 +78,88 @@ export default function SetupPage() {
     };
   }, []);
 
+  // ── Screen stream monitoring capture ──────────────────────────
+  useEffect(() => {
+    let activeStream = null;
+    let captureInterval = null;
+    let videoEl = null;
+    let canvasEl = null;
+
+    if (!api) return;
+
+    api.onStartCapture?.(async ({ sourceId, interval = 3000 }) => {
+      console.log("[Capture] Bắt đầu capture ở renderer, sourceId:", sourceId, "interval:", interval);
+      
+      // Clear existing capture
+      if (captureInterval) clearInterval(captureInterval);
+      if (activeStream) {
+        activeStream.getTracks().forEach(t => t.stop());
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId,
+              maxWidth: 640,
+              maxHeight: 400
+            }
+          }
+        });
+        activeStream = stream;
+
+        // Create hidden video element
+        videoEl = document.createElement('video');
+        videoEl.srcObject = stream;
+        videoEl.autoplay = true;
+        videoEl.muted = true;
+        videoEl.play().catch(e => console.error("[Capture] Lỗi play video:", e));
+
+        // Create hidden canvas element
+        canvasEl = document.createElement('canvas');
+        const ctx = canvasEl.getContext('2d', { alpha: false });
+
+        captureInterval = setInterval(() => {
+          if (videoEl && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+            canvasEl.width = videoEl.videoWidth;
+            canvasEl.height = videoEl.videoHeight;
+            ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
+            
+            // Compress to JPEG 50%
+            const image = canvasEl.toDataURL('image/jpeg', 0.5);
+            api.sendCaptureFrame(image);
+          }
+        }, interval);
+
+      } catch (err) {
+        console.error("[Capture] Lỗi lấy MediaStream:", err);
+      }
+    });
+
+    api.onStopCapture?.(() => {
+      console.log("[Capture] Dừng capture ở renderer");
+      if (captureInterval) {
+        clearInterval(captureInterval);
+        captureInterval = null;
+      }
+      if (activeStream) {
+        activeStream.getTracks().forEach(t => t.stop());
+        activeStream = null;
+      }
+    });
+
+    return () => {
+      if (captureInterval) clearInterval(captureInterval);
+      if (activeStream) {
+        activeStream.getTracks().forEach(t => t.stop());
+      }
+      api.removeAllListeners?.('capture:start');
+      api.removeAllListeners?.('capture:stop');
+    };
+  }, [api]);
+
   const handleConnect = async () => {
     if (!serverIp.trim()) {
       setErrorMsg('Vui lòng nhập địa chỉ IP server');

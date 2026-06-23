@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── File Transfer ─────────────────────────────────────────
   onFileReceiving: (cb) => ipcRenderer.on('file-receiving', (_, d) => cb(d)),
   onFileReceived: (cb) => ipcRenderer.on('file-received', (_, d) => cb(d)),
+  onFileError: (cb) => ipcRenderer.on('file-error', (_, d) => cb(d)),
   submitFile: () => ipcRenderer.invoke('student:submit-file'),
   onSubmitAck: (cb) => ipcRenderer.on('submit:ack', (_, d) => cb(d)),
 
@@ -40,6 +41,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Window controls ───────────────────────────────────────
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowClose: () => ipcRenderer.invoke('window:close'),
+
+  // ── Screen Capture (Renderer side) ────────────────────────
+  onStartCapture: (cb) => ipcRenderer.on('capture:start', (_, d) => cb(d)),
+  onStopCapture: (cb) => ipcRenderer.on('capture:stop', () => cb()),
+  sendCaptureFrame: (image) => ipcRenderer.invoke('capture:frame', { image }),
 
   // ── Cleanup ───────────────────────────────────────────────
   removeAllListeners: (ch) => ipcRenderer.removeAllListeners(ch)
