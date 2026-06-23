@@ -375,6 +375,14 @@ ipcMain.on('teacher:remote-control-input', (_, { studentId, cmd }) => {
   io.to(studentId).emit('command:remote-input', cmd);
 });
 
+ipcMain.handle('teacher:boost-stream', (_, studentId) => {
+  io.to(studentId).emit('command:set-stream-rate', { interval: 100 }); // 10 FPS
+});
+
+ipcMain.handle('teacher:normal-stream', (_, studentId) => {
+  io.to(studentId).emit('command:set-stream-rate', { interval: 3000 }); // 3s/frame
+});
+
 // ── Kiểm soát ứng dụng ────────────────────────────────────────
 ipcMain.handle('teacher:set-app-block', (_, { enabled, rules, mode }) => {
   if (enabled) {

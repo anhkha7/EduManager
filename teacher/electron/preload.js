@@ -28,9 +28,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendStreamStart: () => ipcRenderer.send('teacher:stream-start'),
   sendStreamChunk: (chunk) => ipcRenderer.send('teacher:stream-chunk', chunk),
 
-  // ── Remote Control ───────────────────────────────────────────
+  // ── Remote Control & Stream Control ────────────────────────
   remoteControlStart: (studentId, enabled) => ipcRenderer.invoke('teacher:remote-control-start', { studentId, enabled }),
   sendRemoteInput: (studentId, cmd) => ipcRenderer.send('teacher:remote-control-input', { studentId, cmd }),
+  boostStream: (studentId) => ipcRenderer.invoke('teacher:boost-stream', studentId),
+  normalStream: (studentId) => ipcRenderer.invoke('teacher:normal-stream', studentId),
 
   sendChat: (studentId, message) => ipcRenderer.invoke('teacher:chat', { studentId, message }),
 

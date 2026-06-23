@@ -9,7 +9,13 @@ export default function StudentDetail({ student, onClose, onLock, onUnlock, onCh
   const api = window.electronAPI;
 
   useEffect(() => {
+    // Tăng tốc độ chụp màn hình lên 10 FPS khi giáo viên xem chi tiết
+    api.boostStream(student.id);
+
     return () => {
+      // Khôi phục về 3 giây/lần khi đóng
+      api.normalStream(student.id);
+      
       if (isRemoteControl) {
         api.remoteControlStart(student.id, false);
       }

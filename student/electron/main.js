@@ -503,6 +503,13 @@ function connectToServer(serverIp, serverPort) {
     closeBroadcastWindow();
   });
 
+  socket.on('command:set-stream-rate', ({ interval }) => {
+    console.log(`[Student] Nhận lệnh thay đổi FPS: interval = ${interval}ms`);
+    if (setupWindow && !setupWindow.isDestroyed()) {
+      setupWindow.webContents.send('capture:update-interval', { interval });
+    }
+  });
+
   socket.on('broadcast:start', () => {
     console.log('[Student] Nhận lệnh bắt đầu broadcast');
     closeLockWindow(); // Đóng lock nếu đang mở

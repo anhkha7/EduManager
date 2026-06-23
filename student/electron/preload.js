@@ -45,6 +45,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // ── Screen Capture (Renderer side) ────────────────────────
   onStartCapture: (cb) => ipcRenderer.on('capture:start', (_, d) => cb(d)),
   onStopCapture: (cb) => ipcRenderer.on('capture:stop', () => cb()),
+  onUpdateCaptureInterval: (cb) => ipcRenderer.on('capture:update-interval', (_, d) => cb(d)),
   sendCaptureFrame: (image) => ipcRenderer.invoke('capture:frame', { image }),
 
   // ── Cleanup ───────────────────────────────────────────────

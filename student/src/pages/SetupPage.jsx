@@ -150,6 +150,26 @@ export default function SetupPage() {
       }
     });
 
+    api.onUpdateCaptureInterval?.(({ interval }) => {
+      console.log("[Capture] Cập nhật capture interval:", interval);
+      if (captureInterval) {
+        clearInterval(captureInterval);
+      }
+      if (videoEl && canvasEl) {
+        const ctx = canvasEl.getContext('2d', { alpha: false });
+        captureInterval = setInterval(() => {
+          if (videoEl && videoEl.videoWidth > 0 && videoEl.videoHeight > 0) {
+            canvasEl.width = videoEl.videoWidth;
+            canvasEl.height = videoEl.videoHeight;
+            ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
+            // Compress to JPEG 50%
+            const image = canvasEl.toDataURL('image/jpeg', 0.5);
+            api.sendCaptureFrame(image);
+          }
+        }, interval);
+      }
+    });
+
     return () => {
       if (captureInterval) clearInterval(captureInterval);
       if (activeStream) {
@@ -157,6 +177,7 @@ export default function SetupPage() {
       }
       api.removeAllListeners?.('capture:start');
       api.removeAllListeners?.('capture:stop');
+      api.removeAllListeners?.('capture:update-interval');
     };
   }, [api]);
 

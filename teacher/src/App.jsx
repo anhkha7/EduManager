@@ -130,7 +130,7 @@ export default function App() {
             chromeMediaSourceId: sourceId,
             maxWidth: 1280,
             maxHeight: 720,
-            maxFrameRate: 5 // Giới hạn 5 FPS cho mượt và nhẹ
+            maxFrameRate: 15 // Tăng giới hạn FPS
           }
         }
       });
@@ -158,11 +158,11 @@ export default function App() {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            // Nén JPEG chất lượng 40% (~20-40KB mỗi khung hình)
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.4);
+            // Nén JPEG chất lượng 60% cho hình ảnh rõ nét hơn
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
             api.sendStreamChunk(dataUrl);
           }
-        }, 250); // 250ms = 4 FPS (Giảm tối đa băng thông cho lớp 40 học sinh)
+        }, 100); // 100ms = 10 FPS (Đủ mượt và giữ băng thông hợp lý)
       };
 
       setIsBroadcasting(true);
